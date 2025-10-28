@@ -6,6 +6,7 @@ interface TimelineRulerProps {
   canvasWidth: number;
   trackHeaderWidth: number;
   zoomLevel?: number;
+  onRulerClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 export const TimelineRuler: React.FC<TimelineRulerProps> = ({
@@ -13,6 +14,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   canvasWidth,
   trackHeaderWidth,
   zoomLevel = 1,
+  onRulerClick,
 }) => {
   const timelineWidth = canvasWidth - trackHeaderWidth;
 
@@ -23,12 +25,15 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   const timeMarkers = [];
   const effectiveDuration = duration / zoomLevel; // Effective duration for display
   for (let time = 0; time <= effectiveDuration; time += interval) {
-    const x = trackHeaderWidth + (time / effectiveDuration) * timelineWidth;
+    const x = (time / effectiveDuration) * timelineWidth; // Start from 0 since ruler is offset
     timeMarkers.push({ time, x });
   }
 
   return (
-    <div className="absolute top-0 left-0 w-full h-8 bg-gray-700 border-b border-gray-600 z-30">
+    <div
+      className="absolute top-0 left-24 w-full h-8 bg-gray-700 border-b border-gray-600 z-30 cursor-pointer"
+      onClick={onRulerClick}
+    >
       {/* Time markers */}
       {timeMarkers.map((marker, index) => (
         <div key={index}>
@@ -61,9 +66,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
             const minorTime = marker.time + minorInterval;
             if (minorTime >= effectiveDuration) return null;
 
-            const minorX =
-              trackHeaderWidth +
-              (minorTime / effectiveDuration) * timelineWidth;
+            const minorX = (minorTime / effectiveDuration) * timelineWidth;
 
             return (
               <div key={`minor-${index}`}>

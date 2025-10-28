@@ -17,7 +17,7 @@ function createWindow(): void {
       nodeIntegration: false,
       contextIsolation: true,
       preload: join(__dirname, "preload.js"),
-      webSecurity: true,
+      webSecurity: false, // Allow local file access for video playback
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
       // Enable file access for drag and drop

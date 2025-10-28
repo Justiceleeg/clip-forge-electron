@@ -12,6 +12,7 @@ interface ProjectState {
 
   // Video clips
   clips: VideoClip[];
+  selectedClip: VideoClip | null;
 
   // Timeline state
   timeline: Timeline;
@@ -32,6 +33,7 @@ interface ProjectState {
   addClip: (clip: VideoClip) => void;
   removeClip: (clipId: string) => void;
   updateClip: (clipId: string, updates: Partial<VideoClip>) => void;
+  selectClip: (clip: VideoClip | null) => void;
   setTimeline: (timeline: Timeline) => void;
   updateTimeline: (updates: Partial<Timeline>) => void;
   setExportSettings: (settings: ExportSettings) => void;
@@ -65,6 +67,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
   // Initial state
   currentProject: null,
   clips: [],
+  selectedClip: null,
   timeline: defaultTimeline,
   exportSettings: defaultExportSettings,
   isLoading: false,
@@ -92,6 +95,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
       ),
     })),
 
+  selectClip: (clip) => set({ selectedClip: clip }),
+
   setTimeline: (timeline) => set({ timeline }),
 
   updateTimeline: (updates) =>
@@ -115,6 +120,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set({
       currentProject: null,
       clips: [],
+      selectedClip: null,
       timeline: defaultTimeline,
       exportSettings: defaultExportSettings,
       isLoading: false,

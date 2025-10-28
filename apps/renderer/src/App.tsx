@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { ImportDialog } from "./components/media/ImportDialog";
 import { MediaLibrary } from "./components/media/MediaLibrary";
 import { Timeline } from "./components/timeline/Timeline";
+import { VideoPlayer, VideoPlayerRef } from "./components/preview/VideoPlayer";
 import { useProjectStore } from "./stores/projectStore";
+import { usePreviewStore } from "./stores/previewStore";
 import { VideoClip } from "@clipforge/shared";
 import {
   Upload,
@@ -19,7 +21,30 @@ import {
 
 function App() {
   const [showImportDialog, setShowImportDialog] = useState(false);
-  const { clips, addClip } = useProjectStore();
+  const [isPlaying, setIsPlaying] = useState(false);
+  const videoPlayerRef = useRef<VideoPlayerRef>(null);
+  const { clips, addClip, selectClip } = useProjectStore();
+  const { preview } = usePreviewStore();
+  const { currentTime, duration } = preview;
+
+  // Format time for display
+  const formatTime = (seconds: number): string => {
+    // Handle NaN or invalid values
+    if (isNaN(seconds) || !isFinite(seconds)) {
+      return "0:00";
+    }
+
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, "0")}:${secs
+        .toString()
+        .padStart(2, "0")}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, "0")}`;
+  };
 
   const handleImport = (importedClips: VideoClip[]) => {
     importedClips.forEach((clip) => addClip(clip));
@@ -31,8 +56,36 @@ function App() {
   };
 
   const handleClipSelect = (clipId: string) => {
-    console.log("Selected clip:", clipId);
-    // TODO: Implement clip selection logic
+    const clip = clips.find((c) => c.id === clipId);
+    selectClip(clip || null);
+  };
+
+  // Video control handlers
+  const handlePlayPause = () => {
+    if (videoPlayerRef.current) {
+      if (isPlaying) {
+        videoPlayerRef.current.pause();
+        setIsPlaying(false);
+      } else {
+        videoPlayerRef.current.play();
+        setIsPlaying(true);
+      }
+    }
+  };
+
+  const handleSeekBack = () => {
+    if (videoPlayerRef.current) {
+      const currentTime = videoPlayerRef.current.getCurrentTime();
+      videoPlayerRef.current.seekTo(Math.max(0, currentTime - 5));
+    }
+  };
+
+  const handleSeekForward = () => {
+    if (videoPlayerRef.current) {
+      const currentTime = videoPlayerRef.current.getCurrentTime();
+      const duration = videoPlayerRef.current.getDuration();
+      videoPlayerRef.current.seekTo(Math.min(duration, currentTime + 5));
+    }
   };
 
   return (
@@ -73,53 +126,42 @@ function App() {
 
         {/* Video Preview Panel */}
         <div className="flex-1 flex flex-col">
-          <div className="flex-1 flex items-center justify-center bg-gray-800">
-            {clips.length === 0 ? (
-              <div className="text-center">
-                <Video className="w-16 h-16 mx-auto mb-4 text-gray-500" />
-                <h2 className="text-xl font-semibold mb-2 text-gray-300">
-                  No video imported yet
-                </h2>
-                <p className="text-gray-400 mb-4">
-                  Click Import to get started
-                </p>
-                <p className="text-sm text-gray-500">Supported: MP4, MOV</p>
-              </div>
-            ) : (
-              <div className="text-center">
-                <Film className="w-16 h-16 mx-auto mb-4 text-blue-500" />
-                <h2 className="text-xl font-semibold mb-2 text-gray-300">
-                  Video Preview
-                </h2>
-                <p className="text-gray-400 mb-4">
-                  Preview player will be implemented in the next story
-                </p>
-                <div className="text-sm text-gray-500">
-                  Imported clips: {clips.length}
-                </div>
-              </div>
-            )}
+          <div className="flex-1 p-4">
+            <VideoPlayer ref={videoPlayerRef} className="h-full" />
           </div>
 
           {/* Playback Controls */}
           <div className="flex items-center justify-center gap-4 p-4 bg-gray-800 border-t border-gray-700">
-            <button className="p-2 text-gray-400 hover:text-white transition-colors">
-              <RotateCcw className="w-5 h-5" />
-            </button>
-            <button className="p-2 text-gray-400 hover:text-white transition-colors">
+            <button
+              onClick={handleSeekBack}
+              className="p-2 text-gray-400 hover:text-white transition-colors"
+            >
               <SkipBack className="w-5 h-5" />
             </button>
-            <button className="p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full transition-colors">
-              <Play className="w-5 h-5" />
+            <button
+              onClick={handlePlayPause}
+              className="p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full transition-colors"
+            >
+              {isPlaying ? (
+                <svg
+                  className="w-5 h-5"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
+                </svg>
+              ) : (
+                <Play className="w-5 h-5" />
+              )}
             </button>
-            <button className="p-2 text-gray-400 hover:text-white transition-colors">
+            <button
+              onClick={handleSeekForward}
+              className="p-2 text-gray-400 hover:text-white transition-colors"
+            >
               <SkipForward className="w-5 h-5" />
             </button>
-            <button className="p-2 text-gray-400 hover:text-white transition-colors">
-              <RotateCw className="w-5 h-5" />
-            </button>
             <div className="ml-4 text-sm text-gray-400 font-mono">
-              00:00:00 / 00:00:00
+              {formatTime(currentTime)} / {formatTime(duration)}
             </div>
           </div>
         </div>

@@ -17,7 +17,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 200 });
   const rulerHeight = 32; // Height for the timeline ruler
 
-  const { clips } = useProjectStore();
+  const { clips, selectClip: selectProjectClip } = useProjectStore();
 
   const {
     timeline,
@@ -61,17 +61,14 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     return () => window.removeEventListener("resize", updateCanvasSize);
   }, [timeline.tracks.length]);
 
-  // Handle playhead click-to-seek
-  const handleTimelineClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current) return;
-
-    const rect = canvasRef.current.getBoundingClientRect();
+  // Handle playhead click-to-seek (only on ruler area)
+  const handleRulerClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const trackHeaderWidth = 100;
     const timelineWidth = canvasSize.width - trackHeaderWidth;
 
     // Calculate time position accounting for zoom
-    // When zoomed in, the same pixel represents less time
     const timePosition =
       (x / timelineWidth) * (timeline.duration / timeline.zoomLevel);
 
@@ -253,6 +250,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
             canvasWidth={canvasSize.width}
             trackHeaderWidth={100}
             zoomLevel={timeline.zoomLevel}
+            onRulerClick={handleRulerClick}
           />
         </div>
 
@@ -281,25 +279,27 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
           ref={canvasRef}
           width={canvasSize.width}
           height={canvasSize.height}
-          className="absolute left-24 top-0 cursor-pointer timeline-canvas"
-          onClick={handleTimelineClick}
+          className="absolute left-24 top-0 timeline-canvas"
         />
 
         {/* Playhead */}
-        <Playhead
-          position={timeline.playheadPosition}
-          duration={timeline.duration}
-          canvasWidth={canvasSize.width}
-          canvasHeight={canvasSize.height}
-          trackHeaderWidth={100}
-          rulerHeight={rulerHeight}
-          zoomLevel={timeline.zoomLevel}
-        />
+        <div className="absolute left-24 top-0 w-full h-full">
+          <Playhead
+            position={timeline.playheadPosition}
+            duration={timeline.duration}
+            canvasWidth={canvasSize.width - 100}
+            canvasHeight={canvasSize.height}
+            trackHeaderWidth={0}
+            rulerHeight={rulerHeight}
+            zoomLevel={timeline.zoomLevel}
+            onPositionChange={setPlayheadPosition}
+          />
+        </div>
 
         {/* Timeline Tracks */}
         <div
-          className="absolute left-24 w-full h-full pointer-events-none"
-          style={{ top: `${rulerHeight}px` }}
+          className="absolute left-24 w-full h-full"
+          style={{ top: `${rulerHeight + 2}px` }}
         >
           {tracks.map((track) => (
             <TimelineTrack
@@ -311,7 +311,20 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
               canvasWidth={canvasSize.width - 100}
               zoomLevel={timeline.zoomLevel}
               onClipSelect={(clipId) => {
+                // Select the timeline clip for visual feedback
                 selectClip(clipId);
+
+                // Find the timeline clip first
+                const timelineClip = tracks
+                  .flatMap((t) => t.clips)
+                  .find((c) => c.id === clipId);
+                if (timelineClip && timelineClip.videoClipId) {
+                  // Find the original project clip using videoClipId
+                  const clip = clips.find(
+                    (c) => c.id === timelineClip.videoClipId
+                  );
+                  selectProjectClip(clip || null);
+                }
               }}
             />
           ))}
