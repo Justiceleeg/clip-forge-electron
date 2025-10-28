@@ -1,9 +1,12 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { join } from "path";
+import { IPCHandlers } from "./handlers/ipcHandlers";
+import { fileService } from "./services/fileService";
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
 
 let mainWindow: BrowserWindow;
+let ipcHandlers: IPCHandlers;
 
 function createWindow(): void {
   // Create the browser window
@@ -13,9 +16,9 @@ function createWindow(): void {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: join(__dirname, "../preload.js"),
+      preload: join(__dirname, "preload.js"),
     },
-    titleBarStyle: "hiddenInset",
+    titleBarStyle: "default",
     show: false,
   });
 
@@ -40,8 +43,14 @@ function createWindow(): void {
 }
 
 // App event handlers
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Ensure directories exist
+  await fileService.ensureDirectoriesExist();
+
   createWindow();
+
+  // Initialize IPC handlers
+  ipcHandlers = new IPCHandlers(mainWindow);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
