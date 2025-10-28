@@ -110,6 +110,7 @@ temp/
 
 # Electron Builder output
 release/
+apps/electron/dist-electron/
 
 # Package files
 *.dmg
@@ -118,6 +119,15 @@ release/
 *.deb
 *.rpm
 *.snap
+
+# Vite build output
+apps/renderer/dist/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# User data directories
+.clipforge/
 
 # Test files
 test-results/
