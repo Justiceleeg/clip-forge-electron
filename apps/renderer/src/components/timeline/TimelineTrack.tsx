@@ -14,6 +14,7 @@ interface TimelineTrackProps {
   canvasWidth: number;
   zoomLevel?: number;
   onClipSelect: (clipId: string) => void;
+  onTrim?: (clipId: string, trimStart: number, trimEnd: number) => void;
 }
 
 export const TimelineTrack: React.FC<TimelineTrackProps> = ({
@@ -24,6 +25,7 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
   canvasWidth,
   zoomLevel = 1,
   onClipSelect,
+  onTrim,
 }) => {
   const trackHeight = 60;
   const trackTop = trackIndex * trackHeight;
@@ -54,6 +56,7 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
           height={trackHeight - 4} // Small margin
           isSelected={clip.selected}
           onSelect={() => onClipSelect(clip.id)}
+          onTrim={onTrim}
         />
       );
     });

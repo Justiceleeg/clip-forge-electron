@@ -4,7 +4,7 @@ import { useTimelineStore } from "../../stores/timelineStore";
 import { TimelineTrack } from "./TimelineTrack";
 import { Playhead } from "./Playhead";
 import { TimelineRuler } from "./TimelineRuler";
-import { ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw, Scissors } from "lucide-react";
 import { getTimeIntervals } from "@shared/utils/timeUtils";
 
 interface TimelineProps {
@@ -14,7 +14,7 @@ interface TimelineProps {
 export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [canvasSize, setCanvasSize] = useState({ width: 800, height: 200 });
+  const [canvasSize, setCanvasSize] = useState({ width: 800, height: 0 });
   const rulerHeight = 32; // Height for the timeline ruler
 
   const { clips, selectClip: selectProjectClip } = useProjectStore();
@@ -27,6 +27,14 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     selectClip,
     updateTimeline,
     setZoomLevel,
+    trimClip,
+    resetClipTrim,
+    validateTrimPoints,
+    trimMode,
+    startTrimMode,
+    updateTrimMode,
+    cancelTrimMode,
+    applyTrimMode,
   } = useTimelineStore();
 
   // Calculate timeline data using useMemo to prevent unnecessary recalculations
@@ -44,6 +52,13 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     });
   }, [timelineData, updateTimeline]);
 
+  // Update trim mode when playhead moves
+  useEffect(() => {
+    if (trimMode.isActive) {
+      updateTrimMode(timeline.playheadPosition);
+    }
+  }, [timeline.playheadPosition, trimMode.isActive, updateTrimMode]);
+
   // Handle canvas resize
   useEffect(() => {
     const updateCanvasSize = () => {
@@ -51,7 +66,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
         const rect = containerRef.current.getBoundingClientRect();
         setCanvasSize({
           width: rect.width,
-          height: Math.max(200, timeline.tracks.length * 60 + 40 + rulerHeight), // Dynamic height based on tracks + ruler
+          height: rect.height, // Use container's actual height
         });
       }
     };
@@ -90,6 +105,17 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     setZoomLevel(1);
   };
 
+  // Trim button handlers
+  const handleTrimClick = () => {
+    if (selectedClip) {
+      if (trimMode.isActive) {
+        applyTrimMode();
+      } else {
+        startTrimMode(selectedClip.id);
+      }
+    }
+  };
+
   // Keyboard shortcuts and wheel zoom
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -117,7 +143,8 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
       const target = event.target as HTMLElement;
       if (
         target.closest(".timeline-canvas") ||
-        target.closest(".timeline-ruler")
+        target.closest(".timeline-ruler") ||
+        target.closest(".timeline-container")
       ) {
         event.preventDefault();
         const delta = event.deltaY > 0 ? 0.9 : 1.1;
@@ -190,6 +217,14 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
 
   const tracks = timeline.tracks;
 
+  // Find the currently selected clip
+  const selectedClip = useMemo(() => {
+    return (
+      tracks.flatMap((track) => track.clips).find((clip) => clip.selected) ||
+      null
+    );
+  }, [tracks]);
+
   // Get current time interval for display
   const currentTimeInterval = getTimeIntervals(
     timeline.duration,
@@ -197,7 +232,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
   );
 
   return (
-    <div className={`bg-gray-800 rounded-lg ${className}`}>
+    <div className={`bg-gray-800 rounded-lg flex flex-col h-full ${className}`}>
       <div className="p-4 border-b border-gray-700">
         <div className="flex items-center justify-between">
           <div>
@@ -234,14 +269,34 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
             >
               <ZoomIn size={16} />
             </button>
+
+            {/* Trim Button */}
+            <div className="ml-4 flex items-center space-x-2">
+              <button
+                onClick={handleTrimClick}
+                disabled={!selectedClip}
+                className={`p-2 rounded transition-colors ${
+                  trimMode.isActive
+                    ? "bg-red-600 hover:bg-red-500 text-white"
+                    : selectedClip
+                    ? "bg-blue-600 hover:bg-blue-500 text-white"
+                    : "bg-gray-500 cursor-not-allowed text-gray-300"
+                }`}
+                title={trimMode.isActive ? "Apply Trim" : "Start Trim"}
+              >
+                <Scissors size={16} />
+              </button>
+              {trimMode.isActive && (
+                <span className="text-sm text-red-400">Trim Mode Active</span>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       <div
         ref={containerRef}
-        className="relative overflow-hidden"
-        style={{ height: `${canvasSize.height}px` }}
+        className="relative overflow-hidden flex-1 timeline-container"
       >
         {/* Timeline Ruler */}
         <div className="timeline-ruler">
@@ -326,6 +381,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
                   selectProjectClip(clip || null);
                 }
               }}
+              onTrim={trimClip}
             />
           ))}
         </div>

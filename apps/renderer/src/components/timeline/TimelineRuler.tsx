@@ -1,5 +1,5 @@
 import React from "react";
-import { formatTime, getTimeIntervals } from "@shared/utils/timeUtils";
+import { getTimeIntervals } from "@shared/utils/timeUtils";
 
 interface TimelineRulerProps {
   duration: number;
@@ -19,13 +19,25 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
   const timelineWidth = canvasWidth - trackHeaderWidth;
 
   // Calculate appropriate time intervals based on duration and zoom level
-  const { interval, minorInterval } = getTimeIntervals(duration, zoomLevel);
+  const { interval, minorInterval } = getTimeIntervals(
+    duration,
+    zoomLevel,
+    timelineWidth
+  );
 
-  // Generate time markers - when zoomed in, show more markers
+  // Format time consistently for timeline (always show MM:SS format)
+  const formatTimelineTime = (seconds: number): string => {
+    const minutes = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${minutes}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // Generate time markers - zoom affects the pixel width per second
   const timeMarkers = [];
-  const effectiveDuration = duration / zoomLevel; // Effective duration for display
-  for (let time = 0; time <= effectiveDuration; time += interval) {
-    const x = (time / effectiveDuration) * timelineWidth; // Start from 0 since ruler is offset
+  const pixelsPerSecond = (timelineWidth / duration) * zoomLevel;
+
+  for (let time = 0; time <= duration; time += interval) {
+    const x = time * pixelsPerSecond;
     timeMarkers.push({ time, x });
   }
 
@@ -54,7 +66,7 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
               fontSize: "10px",
             }}
           >
-            {formatTime(marker.time)}
+            {formatTimelineTime(marker.time)}
           </div>
         </div>
       ))}
@@ -64,9 +76,9 @@ export const TimelineRuler: React.FC<TimelineRulerProps> = ({
         <>
           {timeMarkers.slice(0, -1).map((marker, index) => {
             const minorTime = marker.time + minorInterval;
-            if (minorTime >= effectiveDuration) return null;
+            if (minorTime >= duration) return null;
 
-            const minorX = (minorTime / effectiveDuration) * timelineWidth;
+            const minorX = minorTime * pixelsPerSecond;
 
             return (
               <div key={`minor-${index}`}>

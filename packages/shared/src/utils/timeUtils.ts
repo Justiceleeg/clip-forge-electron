@@ -72,35 +72,58 @@ export const parseTime = (timeString: string): number => {
  * @param zoomLevel - Current zoom level
  * @returns Object with interval and format information
  */
-export const getTimeIntervals = (duration: number, zoomLevel: number = 1) => {
-  // Progressive interval selection based on zoom level
-  // Higher zoom = smaller intervals, Lower zoom = larger intervals
+export const getTimeIntervals = (
+  duration: number,
+  zoomLevel: number = 1,
+  timelineWidth: number = 1000,
+  targetTickCount: number = 20
+) => {
+  // When zoomed in, we want smaller intervals (more detail)
+  // When zoomed out, we want larger intervals (less detail)
+  // Calculate the "visible duration" based on zoom level
+  const visibleDuration = duration / zoomLevel;
 
-  if (zoomLevel >= 4) {
-    // Very high zoom (400%+) - maximum precision
-    return { interval: 0.5, format: "0.5s", minorInterval: 0.25 };
-  } else if (zoomLevel >= 2) {
-    // High zoom (200-400%) - high precision
-    return { interval: 1, format: "1s", minorInterval: 0.5 };
-  } else if (zoomLevel >= 1.5) {
-    // Medium-high zoom (150-200%) - good precision
-    return { interval: 2, format: "2s", minorInterval: 0.5 };
-  } else if (zoomLevel >= 1) {
-    // Normal zoom (100-150%) - balanced
-    return { interval: 5, format: "5s", minorInterval: 1 };
-  } else if (zoomLevel >= 0.5) {
-    // Medium zoom out (50-100%) - overview
-    return { interval: 10, format: "10s", minorInterval: 2 };
-  } else if (zoomLevel >= 0.25) {
-    // Low zoom (25-50%) - wide overview
-    return { interval: 30, format: "30s", minorInterval: 5 };
-  } else if (zoomLevel >= 0.1) {
-    // Very low zoom (10-25%) - very wide overview
-    return { interval: 60, format: "1m", minorInterval: 10 };
-  } else {
-    // Extremely low zoom (under 10%) - maximum overview
-    return { interval: 300, format: "5m", minorInterval: 60 };
+  // Calculate ideal tick interval to fit targetTickCount ticks in visible area
+  const idealInterval = visibleDuration / targetTickCount;
+
+  // Round to "nice" numbers for better readability
+  // Minimum interval is 1 second
+  const niceIntervals = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
+
+  // Find the closest nice interval that's >= idealInterval
+  let selectedInterval = niceIntervals.find(
+    (interval) => interval >= idealInterval
+  );
+
+  // If no nice interval is large enough, use the largest one
+  // If ideal interval is less than 1 second, use 1 second
+  if (!selectedInterval) {
+    selectedInterval =
+      idealInterval < 1 ? 1 : niceIntervals[niceIntervals.length - 1];
   }
+
+  // Calculate minor interval (usually 1/2 or 1/5 of major interval)
+  let minorInterval = selectedInterval / 2;
+  if (selectedInterval >= 60) {
+    minorInterval = selectedInterval / 5; // For minute+ intervals, use 1/5
+  }
+
+  // Format the interval for display
+  let format = "";
+  if (selectedInterval < 60) {
+    format = `${selectedInterval}s`;
+  } else if (selectedInterval < 3600) {
+    format = `${selectedInterval / 60}m`;
+  } else {
+    format = `${selectedInterval / 3600}h`;
+  }
+
+  return {
+    interval: selectedInterval,
+    format,
+    minorInterval,
+    actualTickCount: Math.ceil(duration / selectedInterval),
+  };
 };
 
 /**
