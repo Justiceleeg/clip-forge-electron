@@ -12,6 +12,7 @@ interface TimelineTrackProps {
   trackIndex: number;
   timelineDuration: number;
   canvasWidth: number;
+  zoomLevel?: number;
   onClipSelect: (clipId: string) => void;
 }
 
@@ -21,17 +22,26 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
   trackIndex,
   timelineDuration,
   canvasWidth,
+  zoomLevel = 1,
   onClipSelect,
 }) => {
   const trackHeight = 60;
   const trackTop = trackIndex * trackHeight;
 
-  // Calculate clip positions and widths
+  // Calculate clip positions and widths accounting for zoom
   const renderClips = () => {
     return clips.map((clip) => {
       const clipDuration = clip.endTime - clip.startTime;
-      const clipWidth = (clipDuration / timelineDuration) * canvasWidth;
-      const clipLeft = (clip.startTime / timelineDuration) * canvasWidth;
+
+      // When zoomed in, clips should stretch horizontally but maintain time positions
+      // The effective timeline duration for display is reduced by zoom level
+      const effectiveDuration = timelineDuration / zoomLevel;
+
+      // Clip width scales with zoom (zoomed in = wider clips)
+      const clipWidth = (clipDuration / effectiveDuration) * canvasWidth;
+
+      // Clip position scales with zoom (zoomed in = more spread out)
+      const clipLeft = (clip.startTime / effectiveDuration) * canvasWidth;
 
       return (
         <TimelineClipComponent

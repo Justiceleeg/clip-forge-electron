@@ -3,6 +3,9 @@ import { useProjectStore } from "../../stores/projectStore";
 import { useTimelineStore } from "../../stores/timelineStore";
 import { TimelineTrack } from "./TimelineTrack";
 import { Playhead } from "./Playhead";
+import { TimelineRuler } from "./TimelineRuler";
+import { ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
+import { getTimeIntervals } from "@shared/utils/timeUtils";
 
 interface TimelineProps {
   className?: string;
@@ -12,6 +15,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 200 });
+  const rulerHeight = 32; // Height for the timeline ruler
 
   const { clips } = useProjectStore();
 
@@ -22,6 +26,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     setPlayheadPosition,
     selectClip,
     updateTimeline,
+    setZoomLevel,
   } = useTimelineStore();
 
   // Calculate timeline data using useMemo to prevent unnecessary recalculations
@@ -46,7 +51,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
         const rect = containerRef.current.getBoundingClientRect();
         setCanvasSize({
           width: rect.width,
-          height: Math.max(200, timeline.tracks.length * 60 + 40), // Dynamic height based on tracks
+          height: Math.max(200, timeline.tracks.length * 60 + 40 + rulerHeight), // Dynamic height based on tracks + ruler
         });
       }
     };
@@ -62,11 +67,79 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
 
     const rect = canvasRef.current.getBoundingClientRect();
     const x = event.clientX - rect.left;
-    const timelineWidth = canvasSize.width - 100; // Account for track headers
-    const timePosition = (x / timelineWidth) * timeline.duration;
+    const trackHeaderWidth = 100;
+    const timelineWidth = canvasSize.width - trackHeaderWidth;
+
+    // Calculate time position accounting for zoom
+    // When zoomed in, the same pixel represents less time
+    const timePosition =
+      (x / timelineWidth) * (timeline.duration / timeline.zoomLevel);
 
     setPlayheadPosition(timePosition);
   };
+
+  // Zoom controls with better limits
+  const handleZoomIn = () => {
+    const newZoomLevel = Math.min(timeline.zoomLevel * 1.5, 20); // Max 20x zoom
+    setZoomLevel(newZoomLevel);
+  };
+
+  const handleZoomOut = () => {
+    const newZoomLevel = Math.max(timeline.zoomLevel / 1.5, 0.05); // Min 0.05x zoom (5%)
+    setZoomLevel(newZoomLevel);
+  };
+
+  const handleResetZoom = () => {
+    setZoomLevel(1);
+  };
+
+  // Keyboard shortcuts and wheel zoom
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        switch (event.key) {
+          case "=":
+          case "+":
+            event.preventDefault();
+            handleZoomIn();
+            break;
+          case "-":
+            event.preventDefault();
+            handleZoomOut();
+            break;
+          case "0":
+            event.preventDefault();
+            handleResetZoom();
+            break;
+        }
+      }
+    };
+
+    // Non-passive wheel event listener for proper preventDefault
+    const handleWheel = (event: WheelEvent) => {
+      const target = event.target as HTMLElement;
+      if (
+        target.closest(".timeline-canvas") ||
+        target.closest(".timeline-ruler")
+      ) {
+        event.preventDefault();
+        const delta = event.deltaY > 0 ? 0.9 : 1.1;
+        const newZoomLevel = Math.max(
+          0.05,
+          Math.min(20, timeline.zoomLevel * delta)
+        );
+        setZoomLevel(newZoomLevel);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("wheel", handleWheel, { passive: false });
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("wheel", handleWheel);
+    };
+  }, [timeline.zoomLevel]);
 
   // Render timeline background and grid
   const renderTimelineBackground = (ctx: CanvasRenderingContext2D) => {
@@ -91,7 +164,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     for (let i = 0; i <= 10; i++) {
       const x = trackHeaderWidth + i * gridSpacing;
       ctx.beginPath();
-      ctx.moveTo(x, 0);
+      ctx.moveTo(x, rulerHeight); // Start below ruler
       ctx.lineTo(x, height);
       ctx.stroke();
     }
@@ -99,7 +172,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     // Horizontal track separators
     const trackHeight = 60;
     for (let i = 1; i < timeline.tracks.length; i++) {
-      const y = i * trackHeight;
+      const y = rulerHeight + i * trackHeight;
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(width, y);
@@ -120,12 +193,51 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
 
   const tracks = timeline.tracks;
 
+  // Get current time interval for display
+  const currentTimeInterval = getTimeIntervals(
+    timeline.duration,
+    timeline.zoomLevel
+  );
+
   return (
     <div className={`bg-gray-800 rounded-lg ${className}`}>
       <div className="p-4 border-b border-gray-700">
-        <h2 className="text-xl font-semibold text-white">Timeline</h2>
-        <div className="text-sm text-gray-400 mt-1">
-          Duration: {timeline.duration.toFixed(1)}s | Clips: {clips.length}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-white">Timeline</h2>
+            <div className="text-sm text-gray-400 mt-1">
+              Duration: {timeline.duration.toFixed(1)}s | Clips: {clips.length}{" "}
+              | Interval: {currentTimeInterval.format}
+            </div>
+          </div>
+
+          {/* Zoom Controls */}
+          <div className="flex items-center space-x-2">
+            <div className="text-sm text-gray-300 mr-2">
+              Zoom: {(timeline.zoomLevel * 100).toFixed(0)}%
+            </div>
+            <button
+              onClick={handleZoomOut}
+              className="p-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 hover:text-white transition-colors"
+              title="Zoom Out (Ctrl/Cmd + -)"
+            >
+              <ZoomOut size={16} />
+            </button>
+            <button
+              onClick={handleResetZoom}
+              className="p-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 hover:text-white transition-colors"
+              title="Reset Zoom (Ctrl/Cmd + 0)"
+            >
+              <RotateCcw size={16} />
+            </button>
+            <button
+              onClick={handleZoomIn}
+              className="p-2 bg-gray-700 hover:bg-gray-600 rounded text-gray-300 hover:text-white transition-colors"
+              title="Zoom In (Ctrl/Cmd + +)"
+            >
+              <ZoomIn size={16} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -134,8 +246,25 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
         className="relative overflow-hidden"
         style={{ height: `${canvasSize.height}px` }}
       >
+        {/* Timeline Ruler */}
+        <div className="timeline-ruler">
+          <TimelineRuler
+            duration={timeline.duration}
+            canvasWidth={canvasSize.width}
+            trackHeaderWidth={100}
+            zoomLevel={timeline.zoomLevel}
+          />
+        </div>
+
         {/* Track Headers */}
-        <div className="absolute left-0 top-0 w-24 h-full bg-gray-700 border-r border-gray-600">
+        <div
+          className="absolute left-0 bg-gray-700 border-r border-gray-600"
+          style={{
+            top: `${rulerHeight}px`,
+            width: "100px",
+            height: `${canvasSize.height - rulerHeight}px`,
+          }}
+        >
           {tracks.map((track) => (
             <div
               key={track.id}
@@ -152,7 +281,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
           ref={canvasRef}
           width={canvasSize.width}
           height={canvasSize.height}
-          className="absolute left-24 top-0 cursor-pointer"
+          className="absolute left-24 top-0 cursor-pointer timeline-canvas"
           onClick={handleTimelineClick}
         />
 
@@ -163,10 +292,15 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
           canvasWidth={canvasSize.width}
           canvasHeight={canvasSize.height}
           trackHeaderWidth={100}
+          rulerHeight={rulerHeight}
+          zoomLevel={timeline.zoomLevel}
         />
 
         {/* Timeline Tracks */}
-        <div className="absolute left-24 top-0 w-full h-full pointer-events-none">
+        <div
+          className="absolute left-24 w-full h-full pointer-events-none"
+          style={{ top: `${rulerHeight}px` }}
+        >
           {tracks.map((track) => (
             <TimelineTrack
               key={track.id}
@@ -175,6 +309,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
               trackIndex={tracks.indexOf(track)}
               timelineDuration={timeline.duration}
               canvasWidth={canvasSize.width - 100}
+              zoomLevel={timeline.zoomLevel}
               onClipSelect={(clipId) => {
                 selectClip(clipId);
               }}
