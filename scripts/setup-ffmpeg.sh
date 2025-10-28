@@ -16,13 +16,13 @@ mkdir -p "$BIN_DIR"
 
 # Check if FFmpeg is already installed via Homebrew
 if command -v ffmpeg &> /dev/null; then
-    echo "FFmpeg found in system PATH, creating symlinks..."
+    echo "FFmpeg found in system PATH, copying binaries..."
     
-    # Create symlinks to system FFmpeg
-    ln -sf "$(which ffmpeg)" "$BIN_DIR/ffmpeg"
-    ln -sf "$(which ffprobe)" "$BIN_DIR/ffprobe"
+    # Copy actual binaries (not symlinks) for packaging
+    cp "$(which ffmpeg)" "$BIN_DIR/ffmpeg"
+    cp "$(which ffprobe)" "$BIN_DIR/ffprobe"
     
-    echo "Symlinks created successfully!"
+    echo "Binaries copied successfully!"
 else
     echo "FFmpeg not found in system PATH."
     echo "Please install FFmpeg using one of the following methods:"
