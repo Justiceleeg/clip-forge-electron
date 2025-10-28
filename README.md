@@ -97,3 +97,4 @@ MIT License - see LICENSE file for details.
 ## 🤝 Contributing
 
 This project follows a structured development approach with detailed user stories and acceptance criteria. See the documentation in the `docs/` directory for implementation guidance.
+
