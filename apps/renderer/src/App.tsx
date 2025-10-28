@@ -9,7 +9,6 @@ import {
   Download,
   Settings,
   Play,
-  Pause,
   SkipBack,
   SkipForward,
   RotateCcw,

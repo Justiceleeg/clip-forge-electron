@@ -27,6 +27,31 @@ export class ElectronService {
   }
 
   /**
+   * Import a video file by File object (for drag and drop)
+   */
+  async importVideoFromFile(file: File): Promise<VideoClip> {
+    if (!this.isElectron) {
+      throw new Error("Electron service not available in web environment");
+    }
+
+    try {
+      // Convert File to ArrayBuffer, then to Uint8Array for IPC
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+
+      // Send the file data to the main process
+      const result = await (window as any).electronAPI.importVideoFromBuffer({
+        fileName: file.name,
+        mimeType: file.type,
+        buffer: uint8Array,
+      });
+      return result;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
    * Import a video file by file path
    */
   async importVideo(filePath: string): Promise<VideoClip> {

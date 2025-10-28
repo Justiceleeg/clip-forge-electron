@@ -12,6 +12,21 @@ contextBridge.exposeInMainWorld("electronAPI", {
       throw error;
     }
   },
+  importVideoFromBuffer: async (fileData: {
+    fileName: string;
+    mimeType: string;
+    buffer: Uint8Array;
+  }) => {
+    try {
+      const result = await ipcRenderer.invoke(
+        "import-video-from-buffer",
+        fileData
+      );
+      return result;
+    } catch (error) {
+      throw error;
+    }
+  },
   openFileDialog: () => ipcRenderer.invoke("open-file-dialog"),
   saveProject: (project: any) =>
     ipcRenderer.invoke("save-project", { project }),

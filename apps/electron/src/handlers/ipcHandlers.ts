@@ -37,6 +37,44 @@ export class IPCHandlers {
       }
     );
 
+    // File import from buffer handler (for drag and drop)
+    ipcMain.handle(
+      "import-video-from-buffer",
+      async (
+        event,
+        data: { fileName: string; mimeType: string; buffer: Uint8Array }
+      ) => {
+        try {
+          const { fileName, mimeType, buffer } = data;
+
+          // Convert Uint8Array to Buffer for file operations
+          const fileBuffer = Buffer.from(buffer);
+
+          // Create a temporary file from the buffer
+          const tempFilePath = await fileService.createTempFileFromBuffer(
+            fileBuffer,
+            fileName
+          );
+
+          // Validate file
+          const isValid = await fileService.validateVideoFile(tempFilePath);
+          if (!isValid) {
+            throw new Error(
+              "Unsupported video format. Please use MP4, MOV, or WebM files."
+            );
+          }
+
+          // Create video clip
+          const clip = await fileService.createVideoClip(tempFilePath);
+
+          // Return the clip directly
+          return clip;
+        } catch (error) {
+          throw error;
+        }
+      }
+    );
+
     // Native file picker handler
     ipcMain.handle("open-file-dialog", async () => {
       try {

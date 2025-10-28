@@ -17,6 +17,11 @@ function createWindow(): void {
       nodeIntegration: false,
       contextIsolation: true,
       preload: join(__dirname, "preload.js"),
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
+      // Enable file access for drag and drop
+      sandbox: false,
     },
     titleBarStyle: "default",
     show: false,

@@ -30,41 +30,8 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
     );
   }, []);
 
-  const handleFilePathsImport = useCallback(
-    async (filePaths: string[]) => {
-      setIsImporting(true);
-      setError(null);
-
-      try {
-        const clips: VideoClip[] = [];
-        for (const filePath of filePaths) {
-          try {
-            const clip = await electronService.importVideo(filePath);
-            clips.push(clip);
-          } catch (err) {
-            console.error(`Failed to import ${filePath}:`, err);
-            // Continue with other files even if one fails
-          }
-        }
-
-        if (clips.length === 0) {
-          setError(
-            "Failed to import any video files. Please check the files and try again."
-          );
-        } else {
-          onImport(clips);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to import files");
-      } finally {
-        setIsImporting(false);
-      }
-    },
-    [onImport]
-  );
-
   const handleFileSelect = useCallback(
-    async (files: FileList | null) => {
+    async (files: FileList | File[] | null) => {
       if (!files || files.length === 0) return;
 
       setIsImporting(true);
@@ -103,10 +70,8 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
         const clips: VideoClip[] = [];
         for (const file of validFiles) {
           try {
-            // For drag and drop, we need to use the file path from the dataTransfer
-            // The file.path property should be available in Electron
-            const filePath = (file as any).path || file.name;
-            const clip = await electronService.importVideo(filePath);
+            // Use the new method for handling File objects from drag and drop
+            const clip = await electronService.importVideoFromFile(file);
             clips.push(clip);
           } catch (err) {
             console.error(`Failed to import ${file.name}:`, err);
@@ -176,11 +141,13 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
 
   const handleDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
+    event.stopPropagation();
     setIsDragOver(true);
   }, []);
 
   const handleDragLeave = useCallback((event: React.DragEvent) => {
     event.preventDefault();
+    event.stopPropagation();
     setIsDragOver(false);
   }, []);
 
@@ -189,19 +156,28 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
       event.preventDefault();
       setIsDragOver(false);
 
-      // For drag and drop in Electron, we should use the file paths directly
+      // For drag and drop in Electron 39+, we need to handle this differently
       const files = event.dataTransfer.files;
+      console.log("Files dropped:", files.length);
+
       if (files.length > 0) {
-        const filePaths: string[] = [];
+        // In Electron 39+, we can't directly access file paths from drag events
+        // Instead, we'll use the File API and read the files
         const validFiles: File[] = [];
         const invalidFiles: string[] = [];
 
         // Process each dropped file
         Array.from(files).forEach((file) => {
-          const filePath = (file as any).path;
+          console.log(
+            "Processing file:",
+            file.name,
+            "Type:",
+            file.type,
+            "Size:",
+            file.size
+          );
 
-          if (filePath && validateFile(file)) {
-            filePaths.push(filePath);
+          if (validateFile(file)) {
             validFiles.push(file);
           } else {
             invalidFiles.push(file.name);
@@ -217,16 +193,16 @@ export const ImportDialog: React.FC<ImportDialogProps> = ({
           return;
         }
 
-        if (filePaths.length === 0) {
+        if (validFiles.length === 0) {
           setError("No valid video files dropped.");
           return;
         }
 
-        // Import files using file paths directly
-        handleFilePathsImport(filePaths);
+        // Use the file input handler for valid files
+        handleFileSelect(validFiles);
       }
     },
-    [validateFile]
+    [validateFile, handleFileSelect]
   );
 
   if (!isOpen) return null;

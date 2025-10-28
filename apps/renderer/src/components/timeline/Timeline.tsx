@@ -1,18 +1,8 @@
-import React, {
-  useRef,
-  useEffect,
-  useState,
-  useCallback,
-  useMemo,
-} from "react";
+import React, { useRef, useEffect, useState, useMemo } from "react";
 import { useProjectStore } from "../../stores/projectStore";
 import { useTimelineStore } from "../../stores/timelineStore";
 import { TimelineTrack } from "./TimelineTrack";
 import { Playhead } from "./Playhead";
-import {
-  TimelineClip,
-  TimelineTrack as TimelineTrackType,
-} from "@clipforge/shared";
 
 interface TimelineProps {
   className?: string;
@@ -31,7 +21,6 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     createTimelineTracks,
     setPlayheadPosition,
     selectClip,
-    deselectAllClips,
     updateTimeline,
   } = useTimelineStore();
 
@@ -147,7 +136,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
       >
         {/* Track Headers */}
         <div className="absolute left-0 top-0 w-24 h-full bg-gray-700 border-r border-gray-600">
-          {tracks.map((track, index) => (
+          {tracks.map((track) => (
             <div
               key={track.id}
               className="h-15 border-b border-gray-600 flex items-center px-2"
@@ -178,12 +167,12 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
 
         {/* Timeline Tracks */}
         <div className="absolute left-24 top-0 w-full h-full pointer-events-none">
-          {tracks.map((track, index) => (
+          {tracks.map((track) => (
             <TimelineTrack
               key={track.id}
               track={track}
               clips={track.clips}
-              trackIndex={index}
+              trackIndex={tracks.indexOf(track)}
               timelineDuration={timeline.duration}
               canvasWidth={canvasSize.width - 100}
               onClipSelect={(clipId) => {

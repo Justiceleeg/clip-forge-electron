@@ -14,7 +14,6 @@ interface TimelineClipProps {
 
 export const TimelineClip: React.FC<TimelineClipProps> = ({
   clip,
-  trackId,
   left,
   width,
   top,

@@ -111,6 +111,31 @@ export class FileService {
   }
 
   /**
+   * Creates a temporary file from a buffer (for drag and drop)
+   */
+  async createTempFileFromBuffer(
+    buffer: Buffer,
+    fileName: string
+  ): Promise<string> {
+    const userDataPath = this.getUserDataPath();
+    const tempDir = join(userDataPath, "temp");
+
+    // Ensure temp directory exists
+    await fs.mkdir(tempDir, { recursive: true });
+
+    // Generate unique filename
+    const timestamp = Date.now();
+    const randomId = Math.random().toString(36).substr(2, 9);
+    const tempFileName = `temp-${timestamp}-${randomId}-${fileName}`;
+    const tempFilePath = join(tempDir, tempFileName);
+
+    // Write buffer to file
+    await fs.writeFile(tempFilePath, buffer);
+
+    return tempFilePath;
+  }
+
+  /**
    * Gets the user data directory path
    */
   getUserDataPath(): string {
