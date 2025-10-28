@@ -1,10 +1,11 @@
-import React from "react";
+import React, { useState, useCallback } from "react";
 import { VideoClip } from "@clipforge/shared";
+import { electronService } from "../../services/electronService";
 
 interface MediaLibraryProps {
   clips: VideoClip[];
   onClipSelect: (clipId: string) => void;
-  onImport: () => void;
+  onImport: (clips: VideoClip[]) => void;
 }
 
 export const MediaLibrary: React.FC<MediaLibraryProps> = ({
@@ -12,6 +13,87 @@ export const MediaLibrary: React.FC<MediaLibraryProps> = ({
   onClipSelect,
   onImport,
 }) => {
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+
+  const SUPPORTED_FORMATS = ["mp4", "mov", "webm"];
+  const SUPPORTED_MIME_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
+
+  const validateFile = useCallback((file: File): boolean => {
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    return (
+      extension !== undefined &&
+      SUPPORTED_FORMATS.includes(extension) &&
+      SUPPORTED_MIME_TYPES.includes(file.type)
+    );
+  }, []);
+
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    async (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setIsDragOver(false);
+
+      const files = event.dataTransfer.files;
+      if (files.length > 0) {
+        setIsImporting(true);
+
+        try {
+          const validFiles: File[] = [];
+          const invalidFiles: string[] = [];
+
+          // Process each dropped file
+          Array.from(files).forEach((file) => {
+            if (validateFile(file)) {
+              validFiles.push(file);
+            } else {
+              invalidFiles.push(file.name);
+            }
+          });
+
+          if (invalidFiles.length > 0) {
+            console.warn(`Invalid file types: ${invalidFiles.join(", ")}`);
+            // Continue with valid files only
+          }
+
+          if (validFiles.length > 0) {
+            // Import valid files using Electron service
+            const clips: VideoClip[] = [];
+            for (const file of validFiles) {
+              try {
+                const clip = await electronService.importVideoFromFile(file);
+                clips.push(clip);
+              } catch (err) {
+                console.error(`Failed to import ${file.name}:`, err);
+              }
+            }
+
+            if (clips.length > 0) {
+              onImport(clips);
+            }
+          }
+        } catch (err) {
+          console.error("Error importing files:", err);
+        } finally {
+          setIsImporting(false);
+        }
+      }
+    },
+    [validateFile, onImport]
+  );
+
   const formatDuration = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -24,15 +106,21 @@ export const MediaLibrary: React.FC<MediaLibraryProps> = ({
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg p-4 h-full">
+    <div
+      className={`bg-gray-800 rounded-lg p-4 h-full transition-colors ${
+        isDragOver
+          ? "bg-blue-900 bg-opacity-20 border-2 border-blue-400 border-dashed"
+          : ""
+      }`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg font-semibold">Media Library</h2>
-        <button
-          onClick={onImport}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-1 px-3 rounded transition-colors"
-        >
-          Import
-        </button>
+        {isImporting && (
+          <div className="text-sm text-blue-400">Importing...</div>
+        )}
       </div>
 
       {clips.length === 0 ? (
@@ -50,10 +138,16 @@ export const MediaLibrary: React.FC<MediaLibraryProps> = ({
               d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
             />
           </svg>
-          <p className="text-sm">No videos imported yet</p>
-          <p className="text-xs text-gray-500 mt-1">
-            Click Import to add video files
+          <p className="text-sm font-medium text-gray-300 mb-2">
+            No videos imported yet
           </p>
+          <div className="text-xs text-gray-500 space-y-1">
+            <p>• Drag & drop video files directly into this area</p>
+            <p>• Or use the Import button in the toolbar</p>
+            <p className="text-gray-600 mt-2">
+              Supported formats: MP4, MOV, WebM
+            </p>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -65,7 +159,7 @@ export const MediaLibrary: React.FC<MediaLibraryProps> = ({
             >
               <div className="flex items-start space-x-3">
                 {/* Thumbnail placeholder */}
-                <div className="w-16 h-12 bg-gray-600 rounded flex-shrink-0 flex items-center justify-center">
+                <div className="w-16 h-12 bg-gray-600 rounded shrink-0 flex items-center justify-center">
                   {clip.thumbnailPath ? (
                     <img
                       src={clip.thumbnailPath}

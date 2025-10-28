@@ -67,7 +67,7 @@ function App() {
           <MediaLibrary
             clips={clips}
             onClipSelect={handleClipSelect}
-            onImport={() => setShowImportDialog(true)}
+            onImport={handleImport}
           />
         </div>
 
