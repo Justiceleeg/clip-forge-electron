@@ -87,8 +87,8 @@ export const getTimeIntervals = (
   const idealInterval = visibleDuration / targetTickCount;
 
   // Round to "nice" numbers for better readability
-  // Minimum interval is 1 second
-  const niceIntervals = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
+  // Minimum interval is 0.5 seconds (when zoomed in)
+  const niceIntervals = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
 
   // Find the closest nice interval that's >= idealInterval
   let selectedInterval = niceIntervals.find(
@@ -96,10 +96,10 @@ export const getTimeIntervals = (
   );
 
   // If no nice interval is large enough, use the largest one
-  // If ideal interval is less than 1 second, use 1 second
+  // If ideal interval is less than 0.5 second, use 0.5 second
   if (!selectedInterval) {
     selectedInterval =
-      idealInterval < 1 ? 1 : niceIntervals[niceIntervals.length - 1];
+      idealInterval < 0.5 ? 0.5 : niceIntervals[niceIntervals.length - 1];
   }
 
   // Calculate minor interval (usually 1/2 or 1/5 of major interval)

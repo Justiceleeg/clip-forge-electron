@@ -60,6 +60,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     splitClip,
     deleteClips,
     getClipAtPlayhead,
+    moveClipToTrack,
   } = useTimelineStore();
 
   // Calculate timeline data using useMemo to prevent unnecessary recalculations
@@ -86,6 +87,14 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
   // Get timeline tracks
   const tracks = timeline.tracks;
 
+  // Debug: Log track count
+  useEffect(() => {
+    console.log(
+      `📊 Timeline has ${tracks.length} tracks:`,
+      tracks.map((t) => t.name)
+    );
+  }, [tracks.length]);
+
   // Find the currently selected clip
   const selectedClip = useMemo(() => {
     return (
@@ -94,7 +103,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     );
   }, [tracks]);
 
-  // Initialize empty track on mount if none exist
+  // Initialize 2 video tracks on mount if none exist
   useEffect(() => {
     if (timeline.tracks.length === 0) {
       updateTimeline({
@@ -106,6 +115,20 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
             clips: [],
             muted: false,
             volume: 1.0,
+          },
+          {
+            id: "track-2",
+            name: "Video Track 2",
+            type: "video" as const,
+            clips: [],
+            muted: false,
+            volume: 1.0,
+            // Default overlay position: centered, 25% scale
+            overlayPosition: {
+              x: 0.5, // Center X (0.5 = 50% from left)
+              y: 0.5, // Center Y (0.5 = 50% from top)
+              scale: 0.25, // 25% size
+            },
           },
         ],
       });
@@ -125,9 +148,13 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     const updateCanvasSize = () => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
+        // Calculate proper height based on tracks (48px per track + ruler height)
+        const trackHeight = 48;
+        const calculatedHeight = rulerHeight + tracks.length * trackHeight;
+
         setCanvasSize({
           width: rect.width,
-          height: rect.height, // Use container's actual height
+          height: calculatedHeight,
         });
       }
     };
@@ -135,7 +162,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     updateCanvasSize();
     window.addEventListener("resize", updateCanvasSize);
     return () => window.removeEventListener("resize", updateCanvasSize);
-  }, [timeline.tracks.length]);
+  }, [timeline.tracks.length, tracks.length]);
 
   // Handle playhead click-to-seek (only on ruler area)
   const handleRulerClick = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -202,35 +229,38 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
           addProjectClip(clip);
         }
 
-        // Get or create the first track
-        let track = timeline.tracks[0];
-        if (!track) {
-          // Create track if it doesn't exist
-          const newTrack = {
-            id: "track-1",
-            name: "Video Track 1",
-            type: "video" as const,
-            clips: [],
-            muted: false,
-            volume: 1.0,
-          };
-          updateTimeline({
-            tracks: [newTrack],
-          });
-          track = newTrack;
+        // Calculate which track the drop occurred on
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect) return;
+
+        const dropY = e.clientY - rect.top;
+        const trackHeight = 48;
+        const trackIndex = Math.floor((dropY - rulerHeight) / trackHeight);
+
+        // Clamp trackIndex to valid range
+        const validTrackIndex = Math.max(
+          0,
+          Math.min(trackIndex, timeline.tracks.length - 1)
+        );
+
+        const targetTrack = timeline.tracks[validTrackIndex];
+
+        if (!targetTrack) {
+          console.warn("No valid target track found");
+          return;
         }
 
-        // Calculate position at the end of existing clips
-        const existingClips = track.clips;
+        // Calculate position at the end of existing clips on this track
+        const existingClips = targetTrack.clips;
         const lastClipEnd =
           existingClips.length > 0
             ? Math.max(...existingClips.map((c) => c.endTime))
             : 0;
 
-        // Add clip to timeline at the end
-        addClipToTrack(track.id, {
+        // Add clip to the calculated track at the end
+        addClipToTrack(targetTrack.id, {
           videoClipId: clip.id,
-          trackId: track.id,
+          trackId: targetTrack.id,
           startTime: lastClipEnd,
           endTime: lastClipEnd + clip.duration,
           trimStart: 0,
@@ -240,13 +270,13 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
         });
 
         console.log(
-          `Added clip "${clip.name}" to timeline at position ${lastClipEnd}s`
+          `Added clip "${clip.name}" to ${targetTrack.name} at position ${lastClipEnd}s`
         );
       } catch (err) {
         console.error("Error handling clip drop:", err);
       }
     },
-    [clips, timeline.tracks, addProjectClip, addClipToTrack, updateTimeline]
+    [clips, timeline.tracks, addProjectClip, addClipToTrack, rulerHeight]
   );
 
   // Trim button handlers
@@ -262,9 +292,10 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
 
   // Split handler (keyboard shortcut S)
   const handleSplitShortcut = () => {
-    const clipAtPlayhead = getClipAtPlayhead();
-    if (clipAtPlayhead) {
-      splitClip(clipAtPlayhead.id, timeline.playheadPosition);
+    // Prioritize selected clip over clip at playhead
+    const clipToSplit = selectedClip || getClipAtPlayhead();
+    if (clipToSplit) {
+      splitClip(clipToSplit.id, timeline.playheadPosition);
     }
   };
 
@@ -314,14 +345,15 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
 
   // Check if split is available (playhead within a clip)
   const canSplit = useMemo(() => {
-    const clipAtPlayhead = getClipAtPlayhead();
-    if (!clipAtPlayhead) return false;
+    // Check selected clip first, then clip at playhead
+    const clipToCheck = selectedClip || getClipAtPlayhead();
+    if (!clipToCheck) return false;
 
     // Ensure playhead is not too close to clip edges (0.1s minimum on each side)
-    const offsetInClip = timeline.playheadPosition - clipAtPlayhead.startTime;
-    const clipDuration = clipAtPlayhead.endTime - clipAtPlayhead.startTime;
+    const offsetInClip = timeline.playheadPosition - clipToCheck.startTime;
+    const clipDuration = clipToCheck.endTime - clipToCheck.startTime;
     return offsetInClip >= 0.1 && offsetInClip <= clipDuration - 0.1;
-  }, [timeline.playheadPosition, tracks]);
+  }, [timeline.playheadPosition, tracks, selectedClip]);
 
   // Check if delete is available (at least one clip selected)
   const canDelete = useMemo(() => {
@@ -428,7 +460,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     }
 
     // Horizontal track separators
-    const trackHeight = 60;
+    const trackHeight = 48;
     for (let i = 1; i < timeline.tracks.length; i++) {
       const y = rulerHeight + i * trackHeight;
       ctx.beginPath();
@@ -459,12 +491,9 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     <div className={`bg-gray-800 rounded-lg flex flex-col h-full ${className}`}>
       <div className="p-4 border-b border-gray-700">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-white">Timeline</h2>
-            <div className="text-sm text-gray-400 mt-1">
-              Duration: {timeline.duration.toFixed(1)}s | Clips: {clips.length}{" "}
-              | Interval: {currentTimeInterval.format}
-            </div>
+          <div className="text-sm text-gray-400">
+            Duration: {timeline.duration.toFixed(1)}s | Clips: {clips.length} |
+            Interval: {currentTimeInterval.format}
           </div>
 
           {/* Zoom Controls */}
@@ -577,8 +606,8 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
           {tracks.map((track) => (
             <div
               key={track.id}
-              className="h-15 border-b border-gray-600 flex items-center px-2"
-              style={{ height: "60px" }}
+              className="border-b border-gray-600 flex items-center px-2"
+              style={{ height: "48px" }}
             >
               <div className="text-xs text-gray-300 truncate">{track.name}</div>
             </div>
@@ -610,15 +639,15 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
         {/* Timeline Tracks */}
         <div
           className="absolute left-24 w-full h-full"
-          style={{ top: `${rulerHeight + 2}px` }}
+          style={{ top: `${rulerHeight}px` }}
           onContextMenu={handleContextMenu}
         >
-          {tracks.map((track) => (
+          {tracks.map((track, index) => (
             <TimelineTrack
               key={track.id}
               track={track}
               clips={track.clips}
-              trackIndex={tracks.indexOf(track)}
+              trackIndex={index}
               timelineDuration={timeline.duration}
               canvasWidth={canvasSize.width - 100}
               zoomLevel={timeline.zoomLevel}
@@ -641,6 +670,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
               onTrim={trimClip}
               onReorder={reorderClip}
               onReorderRelative={reorderClipRelative}
+              onMoveToTrack={moveClipToTrack}
             />
           ))}
         </div>

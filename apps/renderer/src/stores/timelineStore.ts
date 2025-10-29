@@ -89,6 +89,11 @@ interface TimelineState {
   // Helper functions
   calculateTimelineDuration: (clips: any[]) => number;
   createTimelineTracks: (clips: any[]) => TimelineTrack[];
+  
+  // Multi-track helper functions
+  getActiveClipsAtTime: (time: number) => TimelineClip[];
+  getTracksAtTime: (time: number) => TimelineTrack[];
+  moveClipToTrack: (clipId: string, newTrackId: string) => void;
 }
 
 const defaultTimeline: Timeline = {
@@ -583,83 +588,138 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 
       const clipDuration = clip.endTime - clip.startTime;
 
-      // Remove the clip from current position
+      // Get all other clips on this track
       let otherClips = track.clips.filter((c) => c.id !== clipId);
-
+      
       // Sort clips by start time
       otherClips.sort((a, b) => a.startTime - b.startTime);
 
-      // Find where to insert the clip (snap to adjacent clips)
-      let insertIndex = 0;
+      // SNAP PRIORITY 0: Check for snap to timeline start (0s)
+      const snapThreshold = 1; // 1 second threshold for all snapping
       let snappedStartTime = newStartTime;
+      let snappedToClip = false;
 
-      for (let i = 0; i < otherClips.length; i++) {
-        const otherClip = otherClips[i];
-        const snapThreshold = 0.5; // 0.5 second snap threshold
+      // Check if near timeline start
+      if (Math.abs(newStartTime) < snapThreshold) {
+        snappedStartTime = 0;
+        snappedToClip = true; // Treat as high priority snap
+      }
 
-        // Check if we should snap to the end of this clip
-        if (Math.abs(newStartTime - otherClip.endTime) < snapThreshold) {
-          snappedStartTime = otherClip.endTime;
-          insertIndex = i + 1;
-          break;
-        }
-
-        // Check if we're before this clip
-        if (newStartTime < otherClip.startTime) {
-          // Snap to start of next clip if close
-          if (
-            Math.abs(newStartTime + clipDuration - otherClip.startTime) <
-            snapThreshold
-          ) {
-            snappedStartTime = otherClip.startTime - clipDuration;
+      // SNAP PRIORITY 1: Check for nearby clip boundaries
+      if (!snappedToClip) {
+        for (const otherClip of otherClips) {
+          // Snap to end of this clip
+          if (Math.abs(newStartTime - otherClip.endTime) < snapThreshold) {
+            snappedStartTime = otherClip.endTime;
+            snappedToClip = true;
+            break;
           }
-          insertIndex = i;
-          break;
+          
+          // Snap to start of this clip (place before it)
+          if (Math.abs(newStartTime + clipDuration - otherClip.startTime) < snapThreshold) {
+            snappedStartTime = otherClip.startTime - clipDuration;
+            snappedToClip = true;
+            break;
+          }
+        }
+      }
+
+      // SNAP PRIORITY 2: If not snapped to clip, snap to nearest ruler tick
+      // But only if tick interval is > 0.5s (don't snap when zoomed in too much)
+      if (!snappedToClip) {
+        // Calculate ruler tick interval (same logic as getTimeIntervals)
+        const duration = timeline.duration;
+        const zoomLevel = timeline.zoomLevel;
+        const visibleDuration = duration / zoomLevel;
+        const idealInterval = visibleDuration / 20;
+        const niceIntervals = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600];
+        
+        let tickInterval = niceIntervals.find((interval) => interval >= idealInterval);
+        if (!tickInterval) {
+          tickInterval = idealInterval < 0.5 ? 0.5 : niceIntervals[niceIntervals.length - 1];
         }
 
-        insertIndex = i + 1;
+        // Only snap to ruler ticks if interval > 0.5s
+        if (tickInterval > 0.5) {
+          snappedStartTime = Math.round(newStartTime / tickInterval) * tickInterval;
+        } else {
+          // When zoomed in (0.5s ticks), don't snap to ruler
+          snappedStartTime = newStartTime;
+        }
       }
 
       // Ensure no negative time
       snappedStartTime = Math.max(0, snappedStartTime);
 
-      // Create reordered clip
-      const reorderedClip = {
+      // Check for overlaps and prevent them
+      const newEndTime = snappedStartTime + clipDuration;
+      
+      // Find if this position would overlap with any clips
+      for (const otherClip of otherClips) {
+        const wouldOverlap = (
+          (snappedStartTime >= otherClip.startTime && snappedStartTime < otherClip.endTime) ||
+          (newEndTime > otherClip.startTime && newEndTime <= otherClip.endTime) ||
+          (snappedStartTime <= otherClip.startTime && newEndTime >= otherClip.endTime)
+        );
+
+        if (wouldOverlap) {
+          // Find nearest non-overlapping position
+          // Try placing after the overlapping clip
+          const afterPosition = otherClip.endTime;
+          const afterEndTime = afterPosition + clipDuration;
+          
+          // Check if placing after works (no overlap with next clip)
+          const nextClipIndex = otherClips.indexOf(otherClip) + 1;
+          const nextClip = nextClipIndex < otherClips.length ? otherClips[nextClipIndex] : null;
+          
+          if (!nextClip || afterEndTime <= nextClip.startTime) {
+            snappedStartTime = afterPosition;
+            break;
+          } else {
+            // Try placing before the overlapping clip
+            const beforePosition = otherClip.startTime - clipDuration;
+            if (beforePosition >= 0) {
+              // Check no overlap with previous clip
+              const prevClipIndex = otherClips.indexOf(otherClip) - 1;
+              const prevClip = prevClipIndex >= 0 ? otherClips[prevClipIndex] : null;
+              
+              if (!prevClip || beforePosition >= prevClip.endTime) {
+                snappedStartTime = beforePosition;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // Create repositioned clip
+      const repositionedClip = {
         ...clip,
         startTime: snappedStartTime,
         endTime: snappedStartTime + clipDuration,
       };
 
       // Insert clip at new position
-      otherClips.splice(insertIndex, 0, reorderedClip);
-
-      // Reposition all clips to be sequential (no gaps, no overlaps)
-      let currentTime = 0;
-      const repositionedClips = otherClips.map((c) => {
-        const duration = c.endTime - c.startTime;
-        const newClip = {
-          ...c,
-          startTime: currentTime,
-          endTime: currentTime + duration,
-        };
-        currentTime = newClip.endTime;
-        return newClip;
-      });
+      const allClips = [...otherClips, repositionedClip].sort(
+        (a, b) => a.startTime - b.startTime
+      );
 
       // Update the track
       const updatedTracks = timeline.tracks.map((t) =>
-        t.id === track.id ? { ...t, clips: repositionedClips } : t
+        t.id === track.id ? { ...t, clips: allClips } : t
       );
 
       // Recalculate timeline duration
-      const allClips = updatedTracks.flatMap((t) => t.clips);
+      const allTimelineClips = updatedTracks.flatMap((t) => t.clips);
       const newDuration =
-        allClips.length > 0
+        allTimelineClips.length > 0
           ? Math.max(
               timeline.duration,
-              Math.max(...allClips.map((c) => c.endTime)) + 2
+              Math.max(...allTimelineClips.map((c) => c.endTime)) + 2
             )
           : timeline.duration;
+
+      console.log(`✅ Repositioned clip ${clipId} to ${snappedStartTime.toFixed(2)}s (duration: ${clipDuration.toFixed(2)}s)`);
 
       return {
         timeline: {
@@ -988,6 +1048,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 
   createTimelineTracks: (clips) => {
     if (clips.length === 0) {
+      // Create 2 video tracks by default for multi-track support
       return [
         {
           id: "track-1",
@@ -997,10 +1058,24 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
           muted: false,
           volume: 1.0,
         },
+        {
+          id: "track-2",
+          name: "Video Track 2",
+          type: "video" as const,
+          clips: [],
+          muted: false,
+          volume: 1.0,
+          // Default overlay position: centered, 25% scale
+          overlayPosition: {
+            x: 0.5, // Center X (0.5 = 50% from left)
+            y: 0.5, // Center Y (0.5 = 50% from top)
+            scale: 0.25, // 25% size
+          },
+        },
       ];
     }
 
-    // For now, put all clips on a single track
+    // Create 2 tracks and place all clips on track 1 for now
     const trackClips: TimelineClip[] = clips.map((clip, index) => ({
       id: `timeline-clip-${clip.id}`,
       videoClipId: clip.id,
@@ -1022,6 +1097,14 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         muted: false,
         volume: 1.0,
       },
+      {
+        id: "track-2",
+        name: "Video Track 2",
+        type: "video" as const,
+        clips: [],
+        muted: false,
+        volume: 1.0,
+      },
     ];
   },
 
@@ -1040,4 +1123,89 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     set((state) => ({
       timeline: { ...state.timeline, gridSize },
     })),
+
+  // Multi-track helper functions
+  getActiveClipsAtTime: (time) => {
+    const { timeline } = get();
+    const allClips = timeline.tracks.flatMap((track) => track.clips);
+    
+    return allClips.filter(
+      (clip) => time >= clip.startTime && time <= clip.endTime
+    );
+  },
+
+  getTracksAtTime: (time) => {
+    const { timeline } = get();
+    
+    return timeline.tracks.filter((track) =>
+      track.clips.some((clip) => time >= clip.startTime && time <= clip.endTime)
+    );
+  },
+
+  moveClipToTrack: (clipId, newTrackId) => {
+    set((state) => {
+      const { timeline } = state;
+      
+      // Find the clip and its current track
+      let sourceTrack: TimelineTrack | null = null;
+      let clipToMove: TimelineClip | null = null;
+      
+      for (const track of timeline.tracks) {
+        const clip = track.clips.find((c) => c.id === clipId);
+        if (clip) {
+          sourceTrack = track;
+          clipToMove = clip;
+          break;
+        }
+      }
+      
+      if (!sourceTrack || !clipToMove) {
+        console.warn(`Clip ${clipId} not found`);
+        return state;
+      }
+      
+      // Don't move if already on target track
+      if (sourceTrack.id === newTrackId) {
+        return state;
+      }
+      
+      // Find target track
+      const targetTrack = timeline.tracks.find((t) => t.id === newTrackId);
+      if (!targetTrack) {
+        console.warn(`Target track ${newTrackId} not found`);
+        return state;
+      }
+      
+      // Remove clip from source track and add to target track
+      const updatedTracks = timeline.tracks.map((track) => {
+        if (track.id === sourceTrack.id) {
+          // Remove from source
+          return {
+            ...track,
+            clips: track.clips.filter((c) => c.id !== clipId),
+          };
+        }
+        if (track.id === newTrackId) {
+          // Add to target
+          const updatedClip = { ...clipToMove, trackId: newTrackId };
+          return {
+            ...track,
+            clips: [...track.clips, updatedClip].sort(
+              (a, b) => a.startTime - b.startTime
+            ),
+          };
+        }
+        return track;
+      });
+      
+      console.log(`✅ Moved clip ${clipId} from ${sourceTrack.id} to ${newTrackId}`);
+      
+      return {
+        timeline: {
+          ...timeline,
+          tracks: updatedTracks,
+        },
+      };
+    });
+  },
 }));

@@ -17,12 +17,14 @@ interface TimelineClipProps {
     targetClipId: string,
     position: "before" | "after"
   ) => void;
+  onMoveToTrack?: (clipId: string, newTrackId: string) => void;
   allClips?: TimelineClipType[]; // All clips in the track for hover detection
   pixelsPerSecond: number; // For calculating time from pixel drag
 }
 
 export const TimelineClip: React.FC<TimelineClipProps> = ({
   clip,
+  trackId,
   left,
   width,
   height,
@@ -32,6 +34,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
   onTrim,
   onReorder,
   onReorderRelative,
+  onMoveToTrack,
   allClips,
   pixelsPerSecond,
 }) => {
@@ -148,6 +151,11 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
   // Handle mouse down to start trim drag or body drag
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      // Ignore right-clicks (context menu)
+      if (e.button !== 0) {
+        return;
+      }
+
       // Always select the clip when clicked
       onSelect();
       
@@ -160,11 +168,56 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
       isDragging.current = true;
 
       const startX = e.clientX;
+      const startY = e.clientY;
 
-      // Body drag for reordering
-      if (trimZone === "body" && (onReorder || onReorderRelative)) {
-        const handleMouseMove = (_e: MouseEvent) => {
-          // Visual feedback could be added here
+      // Body drag for repositioning and cross-track movement
+      if (trimZone === "body") {
+        let draggedElement: HTMLDivElement | null = null;
+        let hasLeftTrack = false; // Track if mouse has left the track row bounds
+        const originalY = e.clientY;
+        const trackHeight = 48;
+        
+        // Calculate grab offset: where within the clip (in time) did the user click?
+        const clipRect = clipRef.current?.getBoundingClientRect();
+        const grabOffsetPixels = clipRect ? (e.clientX - clipRect.left) : 0;
+        const grabOffsetTime = grabOffsetPixels / pixelsPerSecond; // Convert pixels to seconds
+
+        const handleMouseMove = (e: MouseEvent) => {
+          const verticalMovement = Math.abs(e.clientY - originalY);
+          
+          // Check if mouse has left the track row bounds (not just moved vertically)
+          if (!hasLeftTrack && verticalMovement > trackHeight / 2) {
+            hasLeftTrack = true;
+          }
+
+          // Create dragged preview only if we've left the track row
+          if (hasLeftTrack && !draggedElement && clipRef.current) {
+            draggedElement = clipRef.current.cloneNode(true) as HTMLDivElement;
+            draggedElement.style.position = 'fixed';
+            draggedElement.style.pointerEvents = 'none';
+            draggedElement.style.opacity = '0.7';
+            draggedElement.style.zIndex = '9999';
+            draggedElement.style.width = `${clipRef.current.offsetWidth}px`;
+            draggedElement.style.height = `${clipRef.current.offsetHeight}px`;
+            document.body.appendChild(draggedElement);
+          }
+
+          if (draggedElement) {
+            draggedElement.style.left = `${e.clientX - 50}px`;
+            draggedElement.style.top = `${e.clientY - 20}px`;
+          }
+
+          // Visual feedback during horizontal drag (within same track)
+          if (!hasLeftTrack && clipRef.current) {
+            const deltaX = e.clientX - startX;
+            // Show clip sliding with transform during drag
+            clipRef.current.style.transform = `translateX(${deltaX}px)`;
+            clipRef.current.style.opacity = '0.9';
+          } else if (hasLeftTrack && clipRef.current) {
+            // Hide original when dragging to different track
+            clipRef.current.style.transform = '';
+            clipRef.current.style.opacity = '0.3';
+          }
         };
 
         const handleMouseUp = (e: MouseEvent) => {
@@ -172,37 +225,68 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
           document.removeEventListener("mousemove", handleMouseMove);
           document.removeEventListener("mouseup", handleMouseUp);
 
-          // Find which element is under the mouse
-          const elementUnderMouse = document.elementFromPoint(
-            e.clientX,
-            e.clientY
-          );
-          const clipElement = elementUnderMouse?.closest(
-            "[data-clip-id]"
-          ) as HTMLElement;
-
-          if (clipElement && onReorderRelative && allClips) {
-            const targetClipId = clipElement.getAttribute("data-clip-id");
-
-            if (targetClipId && targetClipId !== clip.id) {
-              // Determine which half of the clip we're over
-              const rect = clipElement.getBoundingClientRect();
-              const relativeX = e.clientX - rect.left;
-              const position = relativeX < rect.width / 2 ? "before" : "after";
-
-              console.log(
-                `Drop on clip ${targetClipId}, position: ${position}`
-              );
-              onReorderRelative(clip.id, targetClipId, position);
-              return;
-            }
+          // Remove dragged preview
+          if (draggedElement) {
+            draggedElement.remove();
           }
 
-          // Fallback to time-based reordering if available
-          if (onReorder) {
-            const deltaX = e.clientX - startX;
-            const timeDelta = deltaX / pixelsPerSecond;
-            const newStartTime = Math.max(0, clip.startTime + timeDelta);
+          // Restore original clip visibility and transform
+          if (clipRef.current) {
+            clipRef.current.style.opacity = '1';
+            clipRef.current.style.transform = '';
+          }
+
+          // Calculate new position based on drop location
+          const timelineContainer = document.querySelector('.timeline-container');
+          if (!timelineContainer) return;
+
+          const containerRect = timelineContainer.getBoundingClientRect();
+          const trackHeaderWidth = 100;
+          const rulerHeight = 32;
+          
+          // Calculate time position from X coordinate
+          const dropX = e.clientX - containerRect.left - trackHeaderWidth;
+          const timelineWidth = containerRect.width - trackHeaderWidth;
+          
+          // Calculate the time position where the mouse is
+          const totalDuration = timelineWidth / pixelsPerSecond;
+          const mouseTime = Math.max(0, (dropX / timelineWidth) * totalDuration);
+          
+          // Subtract the grab offset to get the clip's new start time
+          // This ensures the point where you grabbed stays under your mouse
+          const newStartTime = Math.max(0, mouseTime - grabOffsetTime);
+          
+          // Calculate which track was targeted based on Y coordinate
+          const dropY = e.clientY - containerRect.top;
+          const trackHeight = 48;
+          const targetTrackIndex = Math.floor((dropY - rulerHeight) / trackHeight);
+          
+          // Find the track element to get track ID
+          const trackElements = document.querySelectorAll('[data-track-id]');
+          let targetTrackId = trackId; // Default to current track
+          
+          if (trackElements[targetTrackIndex]) {
+            const trackElement = trackElements[targetTrackIndex] as HTMLElement;
+            targetTrackId = trackElement.getAttribute('data-track-id') || trackId;
+          }
+
+          // Check if we're moving to a different track
+          const isChangingTracks = targetTrackId !== trackId;
+
+          // If changing tracks, use moveClipToTrack
+          if (isChangingTracks && onMoveToTrack) {
+            // First move to new track
+            onMoveToTrack(clip.id, targetTrackId);
+            
+            // Then reorder to new position on that track
+            if (onReorder) {
+              // Small delay to let the track change happen
+              setTimeout(() => {
+                onReorder(clip.id, newStartTime);
+              }, 50);
+            }
+          } else if (onReorder) {
+            // Same track, just reorder
             onReorder(clip.id, newStartTime);
           }
         };
@@ -263,10 +347,13 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
       onSelect,
       clip.id,
       clip.startTime,
+      clip.endTime,
       clip.trimStart,
       clip.trimEnd,
       onTrim,
       onReorder,
+      onMoveToTrack,
+      trackId,
       pixelsPerSecond,
       handleTrimStart,
       handleTrimEnd,
@@ -280,11 +367,11 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
     return "bg-blue-600";
   };
 
-  const getBorderColor = () => {
-    // Only show border when selected (white border for selection)
-    if (isSelected) return "border-white border-2";
-    // No border for unselected clips
-    return "border-transparent border";
+  const getOutlineColor = () => {
+    // Use outline instead of border so it doesn't take up space
+    if (isSelected) return "outline-white outline-2";
+    // No outline for unselected clips
+    return "outline-none";
   };
 
   // Check if clip is trimmed from original source video
@@ -297,7 +384,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
       data-clip-id={clip.id}
       className={`absolute rounded ${
         activeTrim ? "" : "transition-all duration-200"
-      } ${getClipColor()} ${getBorderColor()}`}
+      } ${getClipColor()} ${getOutlineColor()}`}
       style={{
         left: `${left}px`,
         width: `${displayWidth}px`,

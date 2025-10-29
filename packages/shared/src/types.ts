@@ -39,6 +39,12 @@ export interface TimelineTrack {
   clips: TimelineClip[];
   muted: boolean;
   volume: number;
+  // Overlay positioning for video tracks (used for PiP/overlay effects)
+  overlayPosition?: {
+    x: number; // Center X position (0-1, as fraction of bottom video width)
+    y: number; // Center Y position (0-1, as fraction of bottom video height)
+    scale: number; // Size scale (0-1, where 1 = full size of bottom video)
+  };
 }
 
 export interface TimelineClip {

@@ -21,6 +21,7 @@ interface TimelineTrackProps {
     targetClipId: string,
     position: "before" | "after"
   ) => void;
+  onMoveToTrack?: (clipId: string, newTrackId: string) => void;
 }
 
 export const TimelineTrack: React.FC<TimelineTrackProps> = ({
@@ -34,9 +35,13 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
   onTrim,
   onReorder,
   onReorderRelative,
+  onMoveToTrack,
 }) => {
-  const trackHeight = 60;
+  const trackHeight = 48;
   const trackTop = trackIndex * trackHeight;
+
+  // Alternating track background colors for visual distinction
+  const trackBgColor = trackIndex % 2 === 0 ? "bg-gray-800/50" : "bg-gray-800/70";
 
   // Calculate clip positions and widths accounting for zoom
   const renderClips = () => {
@@ -63,13 +68,14 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
           trackId={track.id}
           left={clipLeft}
           width={clipWidth}
-          top={trackTop}
+          top={1} // 1px offset for visual spacing within track
           height={trackHeight - 4} // Small margin
           isSelected={clip.selected}
           onSelect={() => onClipSelect(clip.id)}
           onTrim={onTrim}
           onReorder={onReorder}
           onReorderRelative={onReorderRelative}
+          onMoveToTrack={onMoveToTrack}
           allClips={clips}
           pixelsPerSecond={pixelsPerSecond}
         />
@@ -80,15 +86,16 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
   return (
     <div
       className="absolute w-full"
+      data-track-id={track.id}
       style={{
         top: trackTop,
         height: trackHeight,
         left: 0,
       }}
     >
-      {/* Track background */}
+      {/* Track background with alternating colors */}
       <div
-        className="absolute w-full h-full bg-gray-800/50"
+        className={`absolute w-full h-full ${trackBgColor} border-b border-gray-700`}
         style={{ height: trackHeight }}
       />
 
