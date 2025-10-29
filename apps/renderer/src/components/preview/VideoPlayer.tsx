@@ -123,7 +123,19 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
           // Calculate video time based on where we are in this clip
           const offsetInClip = timeline.playheadPosition - activeClip.startTime;
           const videoTime = activeClip.trimStart + offsetInClip;
+
+          // Force seek even if same source file (important for sequential unedited clips)
           videoRef.current.currentTime = videoTime;
+
+          // If playing, ensure video continues playing after seek
+          if (preview.isPlaying && videoRef.current.paused) {
+            videoRef.current.play().catch((error) => {
+              console.error(
+                "Error resuming playback after clip change:",
+                error
+              );
+            });
+          }
 
           // Set a timeout to clear the flag (will be cancelled if video source changes)
           if (clipTransitionTimeoutId.current) {
@@ -141,7 +153,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
       }
       // Only depend on activeClip changing (via timelineSequence.activeClip)
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [timelineSequence.activeClip, clips]);
+    }, [timelineSequence.activeClip, clips, preview.isPlaying]);
 
     // Handle video source changes and resume playback
     useEffect(() => {

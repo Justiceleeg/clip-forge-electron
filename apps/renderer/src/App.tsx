@@ -176,7 +176,7 @@ function App() {
           onClick={() => setShowImportDialog(true)}
           className="flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors"
         >
-          <Upload className="w-3 h-3" />
+          <Download className="w-3 h-3" />
           Import
         </button>
         <button
@@ -187,7 +187,7 @@ function App() {
           }
           className="flex items-center gap-1 px-2 py-1 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-500 disabled:cursor-not-allowed text-white text-sm font-medium rounded transition-colors"
         >
-          <Download className="w-3 h-3" />
+          <Upload className="w-3 h-3" />
           Export
         </button>
         <div className="ml-auto">
