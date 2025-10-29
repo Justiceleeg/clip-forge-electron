@@ -264,13 +264,14 @@ export class IPCHandlers {
       "start-screen-recording",
       async (
         event,
-        data: { sourceId: string; includeAudio?: boolean }
+        data: { sourceId: string; includeAudio?: boolean; microphoneDeviceId?: string }
       ) => {
         try {
-          const { sourceId, includeAudio = false } = data;
+          const { sourceId, includeAudio = false, microphoneDeviceId } = data;
           const result = await recordingService.startScreenRecording(
             sourceId,
-            includeAudio
+            includeAudio,
+            microphoneDeviceId
           );
           
           if (result.success) {
@@ -289,6 +290,41 @@ export class IPCHandlers {
               error instanceof Error
                 ? error.message
                 : "Failed to start screen recording",
+          });
+          throw error;
+        }
+      }
+    );
+
+    ipcMain.handle(
+      "start-webcam-recording",
+      async (
+        event,
+        data: { webcamDeviceId: string; microphoneDeviceId?: string }
+      ) => {
+        try {
+          const { webcamDeviceId, microphoneDeviceId } = data;
+          const result = await recordingService.startWebcamRecording(
+            webcamDeviceId,
+            microphoneDeviceId
+          );
+          
+          if (result.success) {
+            this.sendRecordingEvent("recording-started", { success: true });
+            return result;
+          } else {
+            this.sendRecordingEvent("recording-error", { 
+              error: result.error || "Failed to start webcam recording" 
+            });
+            throw new Error(result.error || "Failed to start webcam recording");
+          }
+        } catch (error) {
+          console.error("Error starting webcam recording:", error);
+          this.sendRecordingEvent("recording-error", {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to start webcam recording",
           });
           throw error;
         }

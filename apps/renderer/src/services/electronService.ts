@@ -241,7 +241,8 @@ export class ElectronService {
    */
   async startScreenRecording(
     sourceId: string,
-    includeAudio: boolean = false
+    includeAudio: boolean = false,
+    microphoneDeviceId?: string
   ): Promise<{ success: boolean; error?: string }> {
     if (!this.isElectron) {
       throw new Error("Electron service not available in web environment");
@@ -251,9 +252,32 @@ export class ElectronService {
       return await (window as any).electronAPI.startScreenRecording({
         sourceId,
         includeAudio,
+        microphoneDeviceId,
       });
     } catch (error) {
       console.error("Error starting screen recording:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Start webcam recording
+   */
+  async startWebcamRecording(
+    webcamDeviceId: string,
+    microphoneDeviceId?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!this.isElectron) {
+      throw new Error("Electron service not available in web environment");
+    }
+
+    try {
+      return await (window as any).electronAPI.startWebcamRecording({
+        webcamDeviceId,
+        microphoneDeviceId,
+      });
+    } catch (error) {
+      console.error("Error starting webcam recording:", error);
       throw error;
     }
   }

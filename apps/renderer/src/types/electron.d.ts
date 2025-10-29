@@ -37,6 +37,11 @@ export interface ElectronAPI {
   startScreenRecording: (data: {
     sourceId: string;
     includeAudio?: boolean;
+    microphoneDeviceId?: string;
+  }) => Promise<{ success: boolean; error?: string }>;
+  startWebcamRecording: (data: {
+    webcamDeviceId: string;
+    microphoneDeviceId?: string;
   }) => Promise<{ success: boolean; error?: string }>;
   stopRecording: () => Promise<{ filePath: string }>;
   saveRecording: (chunks: Uint8Array[]) => Promise<{ filePath: string }>;

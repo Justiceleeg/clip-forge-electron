@@ -15,7 +15,10 @@ export interface ScreenSource {
 export interface RecordingState {
   isRecording: boolean;
   recordingStartTime: number | null;
+  recordingMode: 'screen' | 'webcam' | 'screen+webcam' | null;
   selectedSource: ScreenSource | null;
+  selectedWebcam: string | null; // deviceId
+  selectedMicrophone: string | null; // deviceId
   outputPath: string | null;
   mediaRecorder: MediaRecorder | null;
   chunks: Blob[];
@@ -25,7 +28,10 @@ export class RecordingService {
   private state: RecordingState = {
     isRecording: false,
     recordingStartTime: null,
+    recordingMode: null,
     selectedSource: null,
+    selectedWebcam: null,
+    selectedMicrophone: null,
     outputPath: null,
     mediaRecorder: null,
     chunks: [],
@@ -77,7 +83,8 @@ export class RecordingService {
    */
   async startScreenRecording(
     sourceId: string,
-    includeAudio: boolean = false
+    includeAudio: boolean = false,
+    microphoneDeviceId?: string
   ): Promise<{ success: boolean; error?: string }> {
     if (this.state.isRecording) {
       return { success: false, error: "Recording already in progress" };
@@ -90,6 +97,8 @@ export class RecordingService {
       
       this.state.isRecording = true;
       this.state.recordingStartTime = Date.now();
+      this.state.recordingMode = 'screen';
+      this.state.selectedMicrophone = microphoneDeviceId || null;
       this.state.chunks = [];
 
       // Generate output file path
@@ -107,10 +116,57 @@ export class RecordingService {
       console.error("Error starting screen recording:", error);
       this.state.isRecording = false;
       this.state.recordingStartTime = null;
+      this.state.recordingMode = null;
       return {
         success: false,
         error:
           error instanceof Error ? error.message : "Failed to start recording",
+      };
+    }
+  }
+
+  /**
+   * Start webcam recording
+   */
+  async startWebcamRecording(
+    webcamDeviceId: string,
+    microphoneDeviceId?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    if (this.state.isRecording) {
+      return { success: false, error: "Recording already in progress" };
+    }
+
+    try {
+      // The actual MediaRecorder will be set up in the renderer process
+      // which has access to getUserMedia
+      
+      this.state.isRecording = true;
+      this.state.recordingStartTime = Date.now();
+      this.state.recordingMode = 'webcam';
+      this.state.selectedWebcam = webcamDeviceId;
+      this.state.selectedMicrophone = microphoneDeviceId || null;
+      this.state.chunks = [];
+
+      // Generate output file path
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")
+        .split("T")
+        .join("-")
+        .split("Z")[0];
+      const filename = `webcam-recording-${timestamp}.webm`;
+      this.state.outputPath = join(this.recordingsDir, filename);
+
+      return { success: true };
+    } catch (error) {
+      console.error("Error starting webcam recording:", error);
+      this.state.isRecording = false;
+      this.state.recordingStartTime = null;
+      this.state.recordingMode = null;
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to start webcam recording",
       };
     }
   }
@@ -128,12 +184,15 @@ export class RecordingService {
       // This method will be called after the chunks are accumulated
       this.state.isRecording = false;
       this.state.recordingStartTime = null;
+      this.state.recordingMode = null;
       this.state.mediaRecorder = null;
 
       const filePath = this.state.outputPath || "";
       
       // Reset state
       this.state.selectedSource = null;
+      this.state.selectedWebcam = null;
+      this.state.selectedMicrophone = null;
       this.state.outputPath = null;
       this.state.chunks = [];
 
@@ -219,7 +278,10 @@ export class RecordingService {
 
     this.state.isRecording = false;
     this.state.recordingStartTime = null;
+    this.state.recordingMode = null;
     this.state.selectedSource = null;
+    this.state.selectedWebcam = null;
+    this.state.selectedMicrophone = null;
     this.state.outputPath = null;
     this.state.mediaRecorder = null;
     this.state.chunks = [];

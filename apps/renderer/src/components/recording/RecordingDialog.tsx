@@ -5,7 +5,7 @@ import { ScreenSource } from "../../types/electron";
 interface RecordingDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onStartRecording: (sourceId: string, includeAudio: boolean) => void;
+  onStartRecording: (sourceId: string, includeAudio: boolean, microphoneDeviceId?: string) => void;
 }
 
 export const RecordingDialog: React.FC<RecordingDialogProps> = ({
@@ -18,12 +18,16 @@ export const RecordingDialog: React.FC<RecordingDialogProps> = ({
     null
   );
   const [includeAudio, setIncludeAudio] = useState(false);
+  const [microphoneDevices, setMicrophoneDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicrophone, setSelectedMicrophone] = useState<string>("");
+  const [includeMicrophone, setIncludeMicrophone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       loadScreenSources();
+      loadMicrophoneDevices();
     }
   }, [isOpen]);
 
@@ -50,9 +54,35 @@ export const RecordingDialog: React.FC<RecordingDialogProps> = ({
     }
   };
 
+  const loadMicrophoneDevices = async () => {
+    try {
+      // Request permission for microphones
+      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tempStream.getTracks().forEach((track) => track.stop());
+      
+      // Enumerate devices
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const microphones = devices.filter((device) => device.kind === "audioinput");
+      
+      setMicrophoneDevices(microphones);
+      
+      // Auto-select first microphone
+      if (microphones.length > 0) {
+        setSelectedMicrophone(microphones[0].deviceId);
+      }
+    } catch (err) {
+      console.error("Error loading microphone devices:", err);
+      // Microphone permission denied - not critical for screen recording
+    }
+  };
+
   const handleStartRecording = () => {
     if (selectedSource) {
-      onStartRecording(selectedSource.id, includeAudio);
+      onStartRecording(
+        selectedSource.id,
+        includeAudio,
+        includeMicrophone && selectedMicrophone ? selectedMicrophone : undefined
+      );
       onClose();
     }
   };
@@ -193,6 +223,41 @@ export const RecordingDialog: React.FC<RecordingDialogProps> = ({
                 >
                   Include system audio (if available)
                 </label>
+              </div>
+
+              <div className="mb-4">
+                <div className="flex items-center mb-2">
+                  <input
+                    type="checkbox"
+                    id="includeMicrophone"
+                    checked={includeMicrophone}
+                    onChange={(e) => setIncludeMicrophone(e.target.checked)}
+                    className="w-4 h-4 text-blue-500 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+                  />
+                  <label
+                    htmlFor="includeMicrophone"
+                    className="ml-2 text-sm font-medium text-gray-300"
+                  >
+                    Include microphone
+                  </label>
+                </div>
+                {includeMicrophone && (
+                  <select
+                    value={selectedMicrophone}
+                    onChange={(e) => setSelectedMicrophone(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:border-blue-500"
+                  >
+                    {microphoneDevices.length === 0 ? (
+                      <option value="">No microphones found</option>
+                    ) : (
+                      microphoneDevices.map((device) => (
+                        <option key={device.deviceId} value={device.deviceId}>
+                          {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                )}
               </div>
 
               <div className="flex justify-end gap-3">

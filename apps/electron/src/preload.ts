@@ -48,8 +48,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Recording operations
   getScreenSources: () => ipcRenderer.invoke("get-screen-sources"),
-  startScreenRecording: (data: { sourceId: string; includeAudio?: boolean }) =>
+  startScreenRecording: (data: { 
+    sourceId: string; 
+    includeAudio?: boolean;
+    microphoneDeviceId?: string;
+  }) =>
     ipcRenderer.invoke("start-screen-recording", data),
+  startWebcamRecording: (data: {
+    webcamDeviceId: string;
+    microphoneDeviceId?: string;
+  }) =>
+    ipcRenderer.invoke("start-webcam-recording", data),
   stopRecording: () => ipcRenderer.invoke("stop-recording"),
   saveRecording: (chunks: Uint8Array[]) =>
     ipcRenderer.invoke("save-recording", { chunks }),

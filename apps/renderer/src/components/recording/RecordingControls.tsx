@@ -1,16 +1,21 @@
 import React, { useState, useEffect, useRef } from "react";
 import { electronService } from "../../services/electronService";
 import { RecordingDialog } from "./RecordingDialog";
+import { WebcamRecordingDialog } from "./WebcamRecordingDialog";
 
 interface RecordingControlsProps {
   onRecordingComplete: (filePath: string) => void;
+  onRecordingStateChange?: (isRecording: boolean, stream: MediaStream | null, mode: 'screen' | 'webcam' | null) => void;
 }
 
 export const RecordingControls: React.FC<RecordingControlsProps> = ({
   onRecordingComplete,
+  onRecordingStateChange,
 }) => {
   const [isRecording, setIsRecording] = useState(false);
-  const [showDialog, setShowDialog] = useState(false);
+  const [showScreenDialog, setShowScreenDialog] = useState(false);
+  const [showWebcamDialog, setShowWebcamDialog] = useState(false);
+  const [recordingMode, setRecordingMode] = useState<'screen' | 'webcam' | null>(null);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
   
@@ -72,39 +77,67 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   };
 
   const handleStartRecordingClick = () => {
-    setShowDialog(true);
+    setShowScreenDialog(true);
+    setError(null);
+  };
+
+  const handleStartWebcamClick = () => {
+    setShowWebcamDialog(true);
     setError(null);
   };
 
   const handleStartRecording = async (
     sourceId: string,
-    includeAudio: boolean
+    includeAudio: boolean,
+    microphoneDeviceId?: string
   ) => {
     try {
       setError(null);
+      setRecordingMode('screen');
       
       // Start recording in main process
-      await electronService.startScreenRecording(sourceId, includeAudio);
+      await electronService.startScreenRecording(sourceId, includeAudio, microphoneDeviceId);
       
       // Get the media stream for the selected source
       // For Electron, we need to use specific constraints format
-      const constraints: any = {
-        audio: false, // Note: System audio in Electron is complex, start with video only
-        video: {
-          mandatory: {
-            chromeMediaSource: "desktop",
-            chromeMediaSourceId: sourceId,
-          },
+      const videoConstraints: any = {
+        mandatory: {
+          chromeMediaSource: "desktop",
+          chromeMediaSourceId: sourceId,
         },
       };
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: videoConstraints,
+      });
 
-      if (!stream.active || stream.getVideoTracks().length === 0) {
+      if (!videoStream.active || videoStream.getVideoTracks().length === 0) {
         throw new Error("Failed to get active video stream");
       }
 
-      streamRef.current = stream;
+      // If microphone is requested, add audio track
+      let finalStream = videoStream;
+      if (microphoneDeviceId) {
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: { deviceId: { exact: microphoneDeviceId } },
+            video: false,
+          });
+          
+          // Combine video and audio streams
+          const combinedStream = new MediaStream([
+            ...videoStream.getVideoTracks(),
+            ...audioStream.getAudioTracks(),
+          ]);
+          finalStream = combinedStream;
+        } catch (err) {
+          console.error("Failed to get microphone stream, continuing without audio:", err);
+          // Continue with video-only recording
+        }
+      }
+
+      streamRef.current = finalStream;
       chunksRef.current = [];
 
       // Check available MIME types and use the first supported one
@@ -123,7 +156,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
       }
 
       // Create MediaRecorder with proper configuration
-      const mediaRecorder = new MediaRecorder(stream, {
+      const mediaRecorder = new MediaRecorder(finalStream, {
         mimeType: selectedMimeType,
         videoBitsPerSecond: 2500000, // 2.5 Mbps
       });
@@ -135,48 +168,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
       };
 
       mediaRecorder.onstop = async () => {
-        if (chunksRef.current.length === 0) {
-          setError("No video data was recorded. Please try again.");
-          handleRecordingError();
-          return;
-        }
-        
-        // Convert Blob array to Uint8Array for IPC
-        const blob = new Blob(chunksRef.current, { type: "video/webm" });
-        
-        if (blob.size === 0) {
-          setError("Recording failed: no data captured");
-          handleRecordingError();
-          return;
-        }
-        
-        const arrayBuffer = await blob.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-
-        try {
-          // Save the recording
-          await electronService.saveRecording([uint8Array]);
-          
-          // Stop the recording in main process
-          await electronService.stopRecording();
-          
-          // Clean up
-          if (streamRef.current) {
-            streamRef.current.getTracks().forEach((track) => track.stop());
-            streamRef.current = null;
-          }
-          
-          setIsRecording(false);
-          stopTimer();
-        } catch (err) {
-          console.error("Error saving recording:", err);
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Failed to save recording"
-          );
-          handleRecordingError();
-        }
+        await handleRecorderStop();
       };
 
       mediaRecorder.onerror = (event: any) => {
@@ -191,7 +183,13 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
       mediaRecorder.start(1000);
 
       setIsRecording(true);
+      setRecordingMode('screen');
       startTimer();
+      
+      // Notify parent about recording state
+      if (onRecordingStateChange) {
+        onRecordingStateChange(true, finalStream, 'screen');
+      }
     } catch (err) {
       console.error("Error starting recording:", err);
       setError(
@@ -200,6 +198,166 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
           : "Failed to start recording. Please check permissions."
       );
       setIsRecording(false);
+      setRecordingMode(null);
+    }
+  };
+
+  const handleStartWebcamRecording = async (
+    webcamDeviceId: string,
+    microphoneDeviceId?: string
+  ) => {
+    try {
+      setError(null);
+      setRecordingMode('webcam');
+      
+      // Start recording in main process
+      await electronService.startWebcamRecording(webcamDeviceId, microphoneDeviceId);
+      
+      // Get webcam stream
+      const videoConstraints: any = {
+        deviceId: { exact: webcamDeviceId },
+      };
+
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: videoConstraints,
+      });
+
+      if (!videoStream.active || videoStream.getVideoTracks().length === 0) {
+        throw new Error("Failed to get webcam stream");
+      }
+
+      // If microphone is requested, add audio track
+      let finalStream = videoStream;
+      if (microphoneDeviceId) {
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: { deviceId: { exact: microphoneDeviceId } },
+            video: false,
+          });
+          
+          // Combine video and audio streams
+          const combinedStream = new MediaStream([
+            ...videoStream.getVideoTracks(),
+            ...audioStream.getAudioTracks(),
+          ]);
+          finalStream = combinedStream;
+        } catch (err) {
+          console.error("Failed to get microphone stream, continuing without audio:", err);
+        }
+      }
+
+      streamRef.current = finalStream;
+      chunksRef.current = [];
+
+      // Check available MIME types
+      const mimeTypes = [
+        "video/webm;codecs=vp9",
+        "video/webm;codecs=vp8",
+        "video/webm",
+      ];
+      
+      let selectedMimeType = "video/webm";
+      for (const mimeType of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+          selectedMimeType = mimeType;
+          break;
+        }
+      }
+
+      // Create MediaRecorder
+      const mediaRecorder = new MediaRecorder(finalStream, {
+        mimeType: selectedMimeType,
+        videoBitsPerSecond: 2500000,
+      });
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        await handleRecorderStop();
+      };
+
+      mediaRecorder.onerror = (event: any) => {
+        console.error("MediaRecorder error:", event);
+        setError("Recording error occurred");
+        handleRecordingError();
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start(1000);
+
+      setIsRecording(true);
+      setRecordingMode('webcam');
+      startTimer();
+      
+      // Notify parent about recording state
+      if (onRecordingStateChange) {
+        onRecordingStateChange(true, finalStream, 'webcam');
+      }
+    } catch (err) {
+      console.error("Error starting webcam recording:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to start webcam recording. Please check permissions."
+      );
+      setIsRecording(false);
+      setRecordingMode(null);
+    }
+  };
+
+  const handleRecorderStop = async () => {
+    if (chunksRef.current.length === 0) {
+      setError("No video data was recorded. Please try again.");
+      handleRecordingError();
+      return;
+    }
+    
+    // Convert Blob array to Uint8Array for IPC
+    const blob = new Blob(chunksRef.current, { type: "video/webm" });
+    
+    if (blob.size === 0) {
+      setError("Recording failed: no data captured");
+      handleRecordingError();
+      return;
+    }
+    
+    const arrayBuffer = await blob.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+
+    try {
+      // Save the recording
+      await electronService.saveRecording([uint8Array]);
+      
+      // Stop the recording in main process
+      await electronService.stopRecording();
+      
+      // Clean up
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      
+      setIsRecording(false);
+      setRecordingMode(null);
+      stopTimer();
+      
+      // Notify parent about recording stopped
+      if (onRecordingStateChange) {
+        onRecordingStateChange(false, null, null);
+      }
+    } catch (err) {
+      console.error("Error saving recording:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to save recording"
+      );
+      handleRecordingError();
     }
   };
 
@@ -211,7 +369,13 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
 
   const handleRecordingError = () => {
     setIsRecording(false);
+    setRecordingMode(null);
     stopTimer();
+    
+    // Notify parent about recording stopped
+    if (onRecordingStateChange) {
+      onRecordingStateChange(false, null, null);
+    }
     
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
@@ -229,26 +393,48 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     <>
       <div className="flex items-center gap-3">
         {!isRecording ? (
-          <button
-            onClick={handleStartRecordingClick}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
-            title="Start screen recording"
-          >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          <>
+            <button
+              onClick={handleStartRecordingClick}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors"
+              title="Start screen recording"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-              />
-            </svg>
-            <span>Record Screen</span>
-          </button>
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                />
+              </svg>
+              <span>Record Screen</span>
+            </button>
+            <button
+              onClick={handleStartWebcamClick}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg transition-colors"
+              title="Start webcam recording"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                />
+              </svg>
+              <span>Record Webcam</span>
+            </button>
+          </>
         ) : (
           <>
             <div className="flex items-center gap-3 px-4 py-2 bg-gray-800 rounded-lg">
@@ -258,7 +444,9 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                   {formatDuration(recordingDuration)}
                 </span>
               </div>
-              <span className="text-gray-400 text-sm">Recording...</span>
+              <span className="text-gray-400 text-sm">
+                Recording {recordingMode === 'screen' ? 'Screen' : 'Webcam'}...
+              </span>
             </div>
             <button
               onClick={handleStopRecording}
@@ -297,9 +485,15 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
       )}
 
       <RecordingDialog
-        isOpen={showDialog}
-        onClose={() => setShowDialog(false)}
+        isOpen={showScreenDialog}
+        onClose={() => setShowScreenDialog(false)}
         onStartRecording={handleStartRecording}
+      />
+      
+      <WebcamRecordingDialog
+        isOpen={showWebcamDialog}
+        onClose={() => setShowWebcamDialog(false)}
+        onStartRecording={handleStartWebcamRecording}
       />
     </>
   );

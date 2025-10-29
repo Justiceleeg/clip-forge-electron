@@ -4,6 +4,7 @@ import { ExportDialog } from "./components/export/ExportDialog";
 import { MediaLibrary } from "./components/media/MediaLibrary";
 import { Timeline } from "./components/timeline/Timeline";
 import { VideoPlayer, VideoPlayerRef } from "./components/preview/VideoPlayer";
+import { RecordingPreview } from "./components/preview/RecordingPreview";
 import { RecordingControls } from "./components/recording/RecordingControls";
 import { useProjectStore } from "./stores/projectStore";
 import { usePreviewStore } from "./stores/previewStore";
@@ -22,6 +23,9 @@ import {
 function App() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null);
+  const [recordingMode, setRecordingMode] = useState<'screen' | 'webcam' | null>(null);
   const videoPlayerRef = useRef<VideoPlayerRef>(null);
   const {
     clips,
@@ -192,15 +196,25 @@ function App() {
     }
   };
 
+  const handleRecordingStateChange = (
+    recording: boolean,
+    stream: MediaStream | null,
+    mode: 'screen' | 'webcam' | null
+  ) => {
+    setIsRecording(recording);
+    setRecordingStream(stream);
+    setRecordingMode(mode);
+  };
+
   return (
     <div className="h-screen bg-gray-900 text-white flex flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-2 p-2 bg-gray-800 border-b border-gray-700">
         <button
           onClick={() => setShowImportDialog(true)}
-          className="flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
         >
-          <Download className="w-3 h-3" />
+          <Download className="w-4 h-4" />
           Import
         </button>
         <button
@@ -209,14 +223,17 @@ function App() {
             timeline.tracks.length === 0 ||
             !timeline.tracks.some((t) => t.clips && t.clips.length > 0)
           }
-          className="flex items-center gap-1 px-2 py-1 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-500 disabled:cursor-not-allowed text-white text-sm font-medium rounded transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-500 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
         >
-          <Upload className="w-3 h-3" />
+          <Upload className="w-4 h-4" />
           Export
         </button>
         
         {/* Recording Controls */}
-        <RecordingControls onRecordingComplete={handleRecordingComplete} />
+        <RecordingControls 
+          onRecordingComplete={handleRecordingComplete} 
+          onRecordingStateChange={handleRecordingStateChange}
+        />
         
         <div className="ml-auto">
           <button className="p-1 text-gray-400 hover:text-white transition-colors">
@@ -242,16 +259,24 @@ function App() {
           {/* Video Preview Panel */}
           <div className="flex-1 flex flex-col">
             <div className="flex-1 p-4 overflow-hidden">
-              <VideoPlayer ref={videoPlayerRef} className="h-full" />
+              {isRecording ? (
+                <RecordingPreview 
+                  stream={recordingStream} 
+                  mode={recordingMode} 
+                  className="h-full rounded-lg" 
+                />
+              ) : (
+                <VideoPlayer ref={videoPlayerRef} className="h-full" />
+              )}
             </div>
 
             {/* Playback Controls */}
             <div className="flex items-center justify-center gap-4 p-4 bg-gray-800 border-t border-gray-700">
               <button
                 onClick={handleSeekBack}
-                disabled={clips.length === 0}
+                disabled={clips.length === 0 || isRecording}
                 className={`p-2 transition-colors ${
-                  clips.length === 0
+                  clips.length === 0 || isRecording
                     ? "text-gray-600 cursor-not-allowed"
                     : "text-gray-400 hover:text-white"
                 }`}
@@ -260,9 +285,9 @@ function App() {
               </button>
               <button
                 onClick={handlePlayPause}
-                disabled={clips.length === 0}
+                disabled={clips.length === 0 || isRecording}
                 className={`p-3 rounded-full transition-colors ${
-                  clips.length === 0
+                  clips.length === 0 || isRecording
                     ? "bg-gray-400 cursor-not-allowed"
                     : "bg-blue-600 hover:bg-blue-700"
                 } text-white`}
@@ -281,9 +306,9 @@ function App() {
               </button>
               <button
                 onClick={handleSeekForward}
-                disabled={clips.length === 0}
+                disabled={clips.length === 0 || isRecording}
                 className={`p-2 transition-colors ${
-                  clips.length === 0
+                  clips.length === 0 || isRecording
                     ? "text-gray-600 cursor-not-allowed"
                     : "text-gray-400 hover:text-white"
                 }`}
