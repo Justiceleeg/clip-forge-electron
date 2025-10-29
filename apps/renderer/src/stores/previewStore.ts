@@ -34,7 +34,7 @@ const defaultPreview: PreviewState = {
   selectedClipId: null,
 };
 
-export const usePreviewStore = create<PreviewStore>((set, get) => ({
+export const usePreviewStore = create<PreviewStore>((set) => ({
   // Initial state
   preview: defaultPreview,
 

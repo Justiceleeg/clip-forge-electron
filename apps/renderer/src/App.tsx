@@ -24,7 +24,6 @@ function App() {
   const videoPlayerRef = useRef<VideoPlayerRef>(null);
   const {
     clips,
-    selectedClip,
     addClip,
     selectClip,
     isExporting,

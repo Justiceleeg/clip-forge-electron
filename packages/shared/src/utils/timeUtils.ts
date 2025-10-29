@@ -75,7 +75,7 @@ export const parseTime = (timeString: string): number => {
 export const getTimeIntervals = (
   duration: number,
   zoomLevel: number = 1,
-  timelineWidth: number = 1000,
+  _timelineWidth: number = 1000,
   targetTickCount: number = 20
 ) => {
   // When zoomed in, we want smaller intervals (more detail)

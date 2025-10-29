@@ -33,7 +33,9 @@ function createWindow(): void {
     mainWindow.loadURL("http://localhost:5173");
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+    // In production, renderer is in Resources/renderer/
+    const rendererPath = join(process.resourcesPath, "renderer", "index.html");
+    mainWindow.loadFile(rendererPath);
   }
 
   // Show window when ready

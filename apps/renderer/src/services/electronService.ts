@@ -182,7 +182,7 @@ export class ElectronService {
       );
     };
 
-    const errorHandler = (_event: any, data: { error: string }) => {
+    const errorHandler = (_event: any, _data: { error: string }) => {
       (window as any).electronAPI.removeAllListeners("video-processed");
       (window as any).electronAPI.removeAllListeners("video-processing-error");
       (window as any).electronAPI.removeAllListeners(

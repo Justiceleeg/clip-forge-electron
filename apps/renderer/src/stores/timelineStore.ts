@@ -381,8 +381,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
       if (!clip) return state;
 
       const clipDuration = clip.endTime - clip.startTime;
-      const oldStartTime = clip.startTime;
-      const oldEndTime = clip.endTime;
 
       // Remove the clip from current position
       let otherClips = track.clips.filter((c) => c.id !== clipId);
@@ -551,7 +549,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
 
     if (!clip) return;
 
-    set((state) => ({
+    set(() => ({
       trimMode: {
         isActive: true,
         clipId,
@@ -590,7 +588,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   },
 
   cancelTrimMode: () => {
-    set((state) => ({
+    set(() => ({
       trimMode: {
         isActive: false,
         clipId: null,

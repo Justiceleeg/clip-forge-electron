@@ -252,7 +252,11 @@ export class IPCHandlers {
     event: K,
     data: FileEvents[K]
   ): void {
-    if (this.mainWindow) {
+    if (
+      this.mainWindow &&
+      !this.mainWindow.isDestroyed() &&
+      !this.mainWindow.webContents.isDestroyed()
+    ) {
       this.mainWindow.webContents.send(event as string, data);
     }
   }
@@ -261,19 +265,31 @@ export class IPCHandlers {
     event: K,
     data: VideoEvents[K]
   ): void {
-    if (this.mainWindow) {
+    if (
+      this.mainWindow &&
+      !this.mainWindow.isDestroyed() &&
+      !this.mainWindow.webContents.isDestroyed()
+    ) {
       this.mainWindow.webContents.send(event as string, data);
     }
   }
 
   private sendError(event: string, error: string): void {
-    if (this.mainWindow) {
+    if (
+      this.mainWindow &&
+      !this.mainWindow.isDestroyed() &&
+      !this.mainWindow.webContents.isDestroyed()
+    ) {
       this.mainWindow.webContents.send(event, { error });
     }
   }
 
   private sendVideoError(event: string, error: string): void {
-    if (this.mainWindow) {
+    if (
+      this.mainWindow &&
+      !this.mainWindow.isDestroyed() &&
+      !this.mainWindow.webContents.isDestroyed()
+    ) {
       this.mainWindow.webContents.send(event, { error });
     }
   }
