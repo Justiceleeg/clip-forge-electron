@@ -49,9 +49,6 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
     null
   );
 
-  // Calculate clip duration for display
-  const clipDuration = clip.endTime - clip.startTime;
-
   // Use active trim during drag, otherwise use actual clip trim
   const displayTrimStart = activeTrim ? activeTrim.trimStart : clip.trimStart;
   const displayTrimEnd = activeTrim ? activeTrim.trimEnd : clip.trimEnd;
@@ -151,8 +148,10 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
   // Handle mouse down to start trim drag or body drag
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      // Always select the clip when clicked
+      onSelect();
+      
       if (trimZone === "none") {
-        onSelect();
         return;
       }
 
@@ -282,13 +281,15 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
   };
 
   const getBorderColor = () => {
-    if (isSelected) return "border-blue-300 border-2";
-    if (isHovered) return "border-blue-200 border";
-    return "border-blue-300 border";
+    // Only show border when selected (white border for selection)
+    if (isSelected) return "border-white border-2";
+    // No border for unselected clips
+    return "border-transparent border";
   };
 
-  // Check if clip is trimmed (use display values during drag)
-  const isTrimmed = displayTrimStart > 0 || displayTrimEnd < clipDuration;
+  // Check if clip is trimmed from original source video
+  // Compare against originalDuration to see if this clip has been trimmed
+  const isTrimmed = clip.trimStart > 0 || clip.trimEnd < clip.originalDuration;
 
   return (
     <div

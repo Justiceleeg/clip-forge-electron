@@ -26,6 +26,7 @@ function App() {
     clips,
     addClip,
     selectClip,
+    selectedClip,
     isExporting,
     exportProgress,
     exportStatus,
@@ -206,6 +207,7 @@ function App() {
               clips={clips}
               onClipSelect={handleClipSelect}
               onImport={handleImport}
+              selectedVideoClipId={selectedClip?.id || null}
             />
           </div>
 

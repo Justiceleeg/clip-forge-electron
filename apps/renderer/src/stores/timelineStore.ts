@@ -33,6 +33,13 @@ interface TimelineState {
   updateClip: (clipId: string, updates: Partial<TimelineClip>) => void;
   selectClip: (clipId: string) => void;
   deselectAllClips: () => void;
+  
+  // Split and Delete actions
+  splitClip: (clipId: string, splitTime: number) => void;
+  deleteClip: (clipId: string) => void;
+  deleteClips: (clipIds: string[]) => void;
+  getClipAtPlayhead: () => TimelineClip | null;
+  selectClipMulti: (clipId: string, multiSelect: boolean) => void;
 
   // Trim actions
   trimClip: (clipId: string, trimStart: number, trimEnd: number) => void;
@@ -265,6 +272,172 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         })),
       },
     })),
+  
+  // Split clip at a specific time position
+  splitClip: (clipId, splitTime) => {
+    set((state) => {
+      const { timeline } = state;
+      
+      // Find the clip to split
+      let trackWithClip: TimelineTrack | null = null;
+      let clipToSplit: TimelineClip | null = null;
+      
+      for (const track of timeline.tracks) {
+        const clip = track.clips.find((c) => c.id === clipId);
+        if (clip) {
+          trackWithClip = track;
+          clipToSplit = clip;
+          break;
+        }
+      }
+      
+      if (!trackWithClip || !clipToSplit) {
+        console.warn(`Clip ${clipId} not found for split operation`);
+        return state;
+      }
+      
+      // Validate split time is within clip bounds
+      if (splitTime <= clipToSplit.startTime || splitTime >= clipToSplit.endTime) {
+        console.warn(`Split time ${splitTime} is outside clip bounds [${clipToSplit.startTime}, ${clipToSplit.endTime}]`);
+        return state;
+      }
+      
+      // Calculate split point relative to clip start
+      const offsetInClip = splitTime - clipToSplit.startTime;
+      
+      // Ensure both resulting clips will have valid duration (> 0.1s)
+      const firstClipDuration = offsetInClip;
+      const secondClipDuration = (clipToSplit.endTime - clipToSplit.startTime) - offsetInClip;
+      
+      if (firstClipDuration < 0.1 || secondClipDuration < 0.1) {
+        console.warn(`Split would create clip with duration < 0.1s. Aborting.`);
+        return state;
+      }
+      
+      // Create first clip (from start to split point)
+      const firstClip: TimelineClip = {
+        id: `timeline-clip-${Date.now()}-a`,
+        videoClipId: clipToSplit.videoClipId,
+        trackId: trackWithClip.id,
+        startTime: clipToSplit.startTime,
+        endTime: splitTime,
+        trimStart: clipToSplit.trimStart,
+        trimEnd: clipToSplit.trimStart + offsetInClip,
+        originalDuration: clipToSplit.originalDuration,
+        selected: false,
+      };
+      
+      // Create second clip (from split point to end)
+      const secondClip: TimelineClip = {
+        id: `timeline-clip-${Date.now()}-b`,
+        videoClipId: clipToSplit.videoClipId,
+        trackId: trackWithClip.id,
+        startTime: splitTime,
+        endTime: clipToSplit.endTime,
+        trimStart: clipToSplit.trimStart + offsetInClip,
+        trimEnd: clipToSplit.trimEnd,
+        originalDuration: clipToSplit.originalDuration,
+        selected: true, // Select the second clip after split
+      };
+      
+      // Update tracks: remove original clip and add both new clips
+      const updatedTracks = timeline.tracks.map((track) => {
+        if (track.id !== trackWithClip.id) return track;
+        
+        return {
+          ...track,
+          clips: track.clips
+            .filter((c) => c.id !== clipId)
+            .concat([firstClip, secondClip])
+            .sort((a, b) => a.startTime - b.startTime),
+        };
+      });
+      
+      console.log(`✅ Split clip ${clipId} at time ${splitTime}s into ${firstClip.id} and ${secondClip.id}`);
+      
+      return {
+        timeline: {
+          ...timeline,
+          tracks: updatedTracks,
+        },
+      };
+    });
+  },
+  
+  // Delete a single clip
+  deleteClip: (clipId) => {
+    get().deleteClips([clipId]);
+  },
+  
+  // Delete multiple clips
+  deleteClips: (clipIds) => {
+    set((state) => {
+      const { timeline } = state;
+      
+      // Remove all specified clips from their tracks
+      const updatedTracks = timeline.tracks.map((track) => ({
+        ...track,
+        clips: track.clips.filter((clip) => !clipIds.includes(clip.id)),
+      }));
+      
+      // Recalculate timeline duration
+      const allClips = updatedTracks.flatMap((track) => track.clips);
+      const newDuration =
+        allClips.length > 0
+          ? Math.max(
+              timeline.duration,
+              Math.max(...allClips.map((c) => c.endTime)) + 2
+            )
+          : timeline.duration;
+      
+      console.log(`✅ Deleted ${clipIds.length} clip(s)`);
+      
+      return {
+        timeline: {
+          ...timeline,
+          tracks: updatedTracks,
+          duration: newDuration,
+        },
+      };
+    });
+  },
+  
+  // Get clip at playhead position
+  getClipAtPlayhead: () => {
+    const { timeline } = get();
+    const allClips = timeline.tracks.flatMap((track) => track.clips);
+    
+    return (
+      allClips.find(
+        (clip) =>
+          timeline.playheadPosition >= clip.startTime &&
+          timeline.playheadPosition <= clip.endTime
+      ) || null
+    );
+  },
+  
+  // Select clip with multi-select support
+  selectClipMulti: (clipId, multiSelect) => {
+    if (multiSelect) {
+      // Toggle selection for this clip without deselecting others
+      set((state) => ({
+        timeline: {
+          ...state.timeline,
+          tracks: state.timeline.tracks.map((track) => ({
+            ...track,
+            clips: track.clips.map((clip) =>
+              clip.id === clipId
+                ? { ...clip, selected: !clip.selected }
+                : clip
+            ),
+          })),
+        },
+      }));
+    } else {
+      // Single select (deselect all others)
+      get().selectClip(clipId);
+    }
+  },
 
   // Trim actions
   trimClip: (clipId, trimStart, trimEnd) => {

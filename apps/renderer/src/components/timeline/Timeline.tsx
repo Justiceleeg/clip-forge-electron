@@ -11,7 +11,15 @@ import { VideoClip } from "@clipforge/shared";
 import { TimelineTrack } from "./TimelineTrack";
 import { Playhead } from "./Playhead";
 import { TimelineRuler } from "./TimelineRuler";
-import { ZoomIn, ZoomOut, RotateCcw, Scissors } from "lucide-react";
+import { TimelineContextMenu } from "./TimelineContextMenu";
+import {
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Scissors,
+  Trash2,
+  TableColumnsSplit,
+} from "lucide-react";
 import { getTimeIntervals } from "@shared/utils/timeUtils";
 
 interface TimelineProps {
@@ -23,6 +31,10 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 0 });
   const [isDragOver, setIsDragOver] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const rulerHeight = 32; // Height for the timeline ruler
 
   const {
@@ -45,6 +57,9 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     addClipToTrack,
     reorderClip,
     reorderClipRelative,
+    splitClip,
+    deleteClips,
+    getClipAtPlayhead,
   } = useTimelineStore();
 
   // Calculate timeline data using useMemo to prevent unnecessary recalculations
@@ -67,6 +82,17 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
       });
     }
   }, [timelineData.duration, timeline.duration, updateTimeline]);
+
+  // Get timeline tracks
+  const tracks = timeline.tracks;
+
+  // Find the currently selected clip
+  const selectedClip = useMemo(() => {
+    return (
+      tracks.flatMap((track) => track.clips).find((clip) => clip.selected) ||
+      null
+    );
+  }, [tracks]);
 
   // Initialize empty track on mount if none exist
   useEffect(() => {
@@ -234,9 +260,99 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     }
   };
 
+  // Split handler (keyboard shortcut S)
+  const handleSplitShortcut = () => {
+    const clipAtPlayhead = getClipAtPlayhead();
+    if (clipAtPlayhead) {
+      splitClip(clipAtPlayhead.id, timeline.playheadPosition);
+    }
+  };
+
+  // Delete handler (keyboard shortcut Delete/Backspace)
+  const handleDeleteShortcut = () => {
+    const selectedClips = tracks
+      .flatMap((track) => track.clips)
+      .filter((clip) => clip.selected);
+
+    if (selectedClips.length > 0) {
+      deleteClips(selectedClips.map((clip) => clip.id));
+    }
+  };
+
+  // Context menu handlers
+  const handleContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault();
+    setContextMenu({ x: event.clientX, y: event.clientY });
+  }, []);
+
+  const handleContextMenuSplit = () => {
+    handleSplitShortcut();
+  };
+
+  const handleContextMenuDelete = () => {
+    handleDeleteShortcut();
+  };
+
+  const handleContextMenuTrim = () => {
+    if (selectedClip) {
+      if (trimMode.isActive) {
+        applyTrimMode();
+      } else {
+        startTrimMode(selectedClip.id);
+      }
+    }
+  };
+
+  const handleContextMenuClose = () => {
+    setContextMenu(null);
+  };
+
+  // Check if trim is available (at least one clip selected)
+  const canTrim = useMemo(() => {
+    return selectedClip !== null;
+  }, [selectedClip]);
+
+  // Check if split is available (playhead within a clip)
+  const canSplit = useMemo(() => {
+    const clipAtPlayhead = getClipAtPlayhead();
+    if (!clipAtPlayhead) return false;
+
+    // Ensure playhead is not too close to clip edges (0.1s minimum on each side)
+    const offsetInClip = timeline.playheadPosition - clipAtPlayhead.startTime;
+    const clipDuration = clipAtPlayhead.endTime - clipAtPlayhead.startTime;
+    return offsetInClip >= 0.1 && offsetInClip <= clipDuration - 0.1;
+  }, [timeline.playheadPosition, tracks]);
+
+  // Check if delete is available (at least one clip selected)
+  const canDelete = useMemo(() => {
+    return tracks.flatMap((track) => track.clips).some((clip) => clip.selected);
+  }, [tracks]);
+
   // Keyboard shortcuts and wheel zoom
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Split shortcut (S key)
+      if (event.key === "s" || event.key === "S") {
+        if (
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.shiftKey &&
+          !event.altKey
+        ) {
+          event.preventDefault();
+          handleSplitShortcut();
+          return;
+        }
+      }
+
+      // Delete shortcut (Delete or Backspace key)
+      if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        handleDeleteShortcut();
+        return;
+      }
+
+      // Zoom shortcuts
       if (event.ctrlKey || event.metaKey) {
         switch (event.key) {
           case "=":
@@ -333,16 +449,6 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
     renderTimelineBackground(ctx);
   }, [canvasSize, timeline.tracks.length]);
 
-  const tracks = timeline.tracks;
-
-  // Find the currently selected clip
-  const selectedClip = useMemo(() => {
-    return (
-      tracks.flatMap((track) => track.clips).find((clip) => clip.selected) ||
-      null
-    );
-  }, [tracks]);
-
   // Get current time interval for display
   const currentTimeInterval = getTimeIntervals(
     timeline.duration,
@@ -395,18 +501,43 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
                 disabled={!selectedClip}
                 className={`p-2 rounded transition-colors ${
                   trimMode.isActive
-                    ? "bg-red-600 hover:bg-red-500 text-white"
+                    ? "bg-red-600 hover:bg-red-500 text-white animate-pulse"
                     : selectedClip
                     ? "bg-blue-600 hover:bg-blue-500 text-white"
                     : "bg-gray-500 cursor-not-allowed text-gray-300"
                 }`}
-                title={trimMode.isActive ? "Apply Trim" : "Start Trim"}
+                title={trimMode.isActive ? "Apply Trim (T)" : "Start Trim (T)"}
               >
                 <Scissors size={16} />
               </button>
-              {trimMode.isActive && (
-                <span className="text-sm text-red-400">Trim Mode Active</span>
-              )}
+
+              {/* Split Button */}
+              <button
+                onClick={handleSplitShortcut}
+                disabled={!canSplit}
+                className={`p-2 rounded transition-colors ${
+                  canSplit
+                    ? "bg-blue-600 hover:bg-blue-500 text-white"
+                    : "bg-gray-500 cursor-not-allowed text-gray-300"
+                }`}
+                title="Split Clip at Playhead (S)"
+              >
+                <TableColumnsSplit size={16} />
+              </button>
+
+              {/* Delete Button */}
+              <button
+                onClick={handleDeleteShortcut}
+                disabled={!canDelete}
+                className={`p-2 rounded transition-colors ${
+                  canDelete
+                    ? "bg-red-600 hover:bg-red-500 text-white"
+                    : "bg-gray-500 cursor-not-allowed text-gray-300"
+                }`}
+                title="Delete Selected Clip(s) (Del)"
+              >
+                <Trash2 size={16} />
+              </button>
             </div>
           </div>
         </div>
@@ -480,6 +611,7 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
         <div
           className="absolute left-24 w-full h-full"
           style={{ top: `${rulerHeight + 2}px` }}
+          onContextMenu={handleContextMenu}
         >
           {tracks.map((track) => (
             <TimelineTrack
@@ -512,6 +644,21 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
             />
           ))}
         </div>
+
+        {/* Context Menu */}
+        {contextMenu && (
+          <TimelineContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onTrim={handleContextMenuTrim}
+            onSplit={handleContextMenuSplit}
+            onDelete={handleContextMenuDelete}
+            onClose={handleContextMenuClose}
+            canTrim={canTrim}
+            canSplit={canSplit}
+            canDelete={canDelete}
+          />
+        )}
       </div>
     </div>
   );
