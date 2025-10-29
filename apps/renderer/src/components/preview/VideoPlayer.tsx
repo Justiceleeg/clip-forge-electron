@@ -28,15 +28,22 @@ export interface VideoPlayerRef {
 export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
   ({ className }, ref) => {
     const videoRef = useRef<HTMLVideoElement>(null);
+    const preloadVideoRef = useRef<HTMLVideoElement>(null); // Hidden video for preloading next clip
     const isUpdatingFromVideo = useRef(false);
+    const isChangingClips = useRef(false); // Track when we're in the middle of a clip change
+    const clipTransitionTimeoutId = useRef<number | null>(null); // Track timeout for cancellation
     const [currentClip, setCurrentClip] = useState<TimelineClip | null>(null);
     const [currentVideoClip, setCurrentVideoClip] = useState<VideoClip | null>(
       null
     );
+    const previousClipId = useRef<string | null>(null); // Track clip changes
+    const previousVideoSrc = useRef<string | null>(null); // Track video source changes
+    const shouldResumePlayback = useRef(false); // Track if we should resume after load
+    const preloadedClipId = useRef<string | null>(null); // Track which clip is preloaded
 
     const { clips } = useProjectStore();
     const { timeline, setPlayheadPosition } = useTimelineStore();
-    const { updatePreview } = usePreviewStore();
+    const { updatePreview, preview } = usePreviewStore();
 
     // Helper function to find active clip
     const findActiveClip = (
@@ -45,7 +52,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
     ): TimelineClip | null => {
       return (
         clips.find(
-          (clip) => position >= clip.startTime && position <= clip.endTime
+          (clip) => position >= clip.startTime && position < clip.endTime
         ) || null
       );
     };
@@ -53,12 +60,13 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
     // Create timeline sequence from timeline tracks
     const timelineSequence = useMemo(() => {
       const allClips = timeline.tracks.flatMap((track) => track.clips);
+      const activeClip = findActiveClip(timeline.playheadPosition, allClips);
 
       return {
         clips: allClips,
         totalDuration: timeline.duration,
         currentPosition: timeline.playheadPosition,
-        activeClip: findActiveClip(timeline.playheadPosition, allClips),
+        activeClip,
       };
     }, [timeline.tracks, timeline.duration, timeline.playheadPosition]);
 
@@ -81,20 +89,117 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
       return currentClip.startTime + clipOffset;
     };
 
+    // Convert file path to file URL for Electron
+    const getVideoSrc = () => {
+      if (!currentVideoClip?.filePath) return "";
+
+      // In Electron, convert file path to file:// URL
+      if (typeof window !== "undefined" && (window as any).electronAPI) {
+        return `file://${currentVideoClip.filePath}`;
+      }
+
+      return currentVideoClip.filePath;
+    };
+
     // Find the active clip and corresponding video clip
     useEffect(() => {
       const activeClip = timelineSequence.activeClip;
+
       if (activeClip) {
+        const clipChanged = previousClipId.current !== activeClip.id;
+
+        // Always update current clip state
         setCurrentClip(activeClip);
         const videoClip = clips.find(
           (clip) => clip.id === activeClip.videoClipId
         );
         setCurrentVideoClip(videoClip || null);
+
+        // When clip actually changes, force seek to correct position
+        if (clipChanged && videoRef.current) {
+          previousClipId.current = activeClip.id;
+          isChangingClips.current = true; // Mark that we're changing clips
+
+          // Calculate video time based on where we are in this clip
+          const offsetInClip = timeline.playheadPosition - activeClip.startTime;
+          const videoTime = activeClip.trimStart + offsetInClip;
+          videoRef.current.currentTime = videoTime;
+
+          // Set a timeout to clear the flag (will be cancelled if video source changes)
+          if (clipTransitionTimeoutId.current) {
+            clearTimeout(clipTransitionTimeoutId.current);
+          }
+          clipTransitionTimeoutId.current = window.setTimeout(() => {
+            isChangingClips.current = false;
+            clipTransitionTimeoutId.current = null;
+          }, 100);
+        }
       } else {
         setCurrentClip(null);
         setCurrentVideoClip(null);
+        previousClipId.current = null;
       }
+      // Only depend on activeClip changing (via timelineSequence.activeClip)
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [timelineSequence.activeClip, clips]);
+
+    // Handle video source changes and resume playback
+    useEffect(() => {
+      const video = videoRef.current;
+      if (!video || !currentVideoClip) return;
+
+      const videoSrc = getVideoSrc();
+      const srcChanged = previousVideoSrc.current !== videoSrc;
+
+      if (srcChanged) {
+        previousVideoSrc.current = videoSrc;
+
+        // If we're currently playing, mark that we should resume after load
+        if (preview.isPlaying) {
+          // Cancel any pending same-video timeout since we're changing videos
+          if (clipTransitionTimeoutId.current) {
+            clearTimeout(clipTransitionTimeoutId.current);
+            clipTransitionTimeoutId.current = null;
+          }
+
+          isChangingClips.current = true; // Keep the flag set during video load
+          shouldResumePlayback.current = true;
+        }
+      }
+    }, [currentVideoClip, preview.isPlaying]);
+
+    // Auto-resume playback when new video loads
+    useEffect(() => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      const handleLoadedData = () => {
+        if (shouldResumePlayback.current && currentClip) {
+          shouldResumePlayback.current = false;
+
+          // Seek to correct position for new clip
+          const offsetInClip =
+            timeline.playheadPosition - currentClip.startTime;
+          const videoTime = currentClip.trimStart + offsetInClip;
+          video.currentTime = videoTime;
+
+          // Resume playback
+          video.play().catch((error) => {
+            console.error("❌ Failed to resume playback:", error);
+          });
+
+          // Clear the changing clips flag after a delay to allow playback to stabilize
+          setTimeout(() => {
+            isChangingClips.current = false;
+          }, 100);
+        }
+      };
+
+      video.addEventListener("loadeddata", handleLoadedData);
+      return () => {
+        video.removeEventListener("loadeddata", handleLoadedData);
+      };
+    }, [currentClip, timeline.playheadPosition]);
 
     // Seek to correct time when clip changes
     useEffect(() => {
@@ -114,6 +219,49 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
         }
       }
     }, [currentClip, timeline.playheadPosition, getVideoTimeFromTimelineTime]);
+
+    // Preload next clip when approaching end of current clip
+    useEffect(() => {
+      const video = videoRef.current;
+      const preloadVideo = preloadVideoRef.current;
+      if (!video || !currentClip || !preloadVideo) return;
+
+      const checkAndPreload = () => {
+        if (video.paused) return;
+
+        const videoTime = video.currentTime;
+        const timeUntilEnd = currentClip.trimEnd - videoTime;
+
+        // Start preloading when 2 seconds left in current clip
+        if (timeUntilEnd > 0 && timeUntilEnd < 2) {
+          const nextClip = timelineSequence.clips.find(
+            (clip) => clip.startTime >= currentClip.endTime
+          );
+
+          if (nextClip && preloadedClipId.current !== nextClip.id) {
+            const nextVideoClip = clips.find(
+              (c) => c.id === nextClip.videoClipId
+            );
+
+            if (nextVideoClip) {
+              const nextSrc = `file://${nextVideoClip.filePath}`;
+
+              preloadVideo.src = nextSrc;
+              preloadVideo.currentTime = nextClip.trimStart;
+              preloadVideo.load();
+              preloadedClipId.current = nextClip.id;
+            }
+          }
+        }
+      };
+
+      // Check every 100ms during playback
+      const intervalId = setInterval(checkAndPreload, 100);
+
+      return () => {
+        clearInterval(intervalId);
+      };
+    }, [currentClip, timelineSequence.clips, clips]);
 
     // Expose video controls to parent component
     useImperativeHandle(ref, () => ({
@@ -183,18 +331,6 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
       },
     }));
 
-    // Convert file path to file URL for Electron
-    const getVideoSrc = () => {
-      if (!currentVideoClip?.filePath) return "";
-
-      // In Electron, convert file path to file:// URL
-      if (typeof window !== "undefined" && (window as any).electronAPI) {
-        return `file://${currentVideoClip.filePath}`;
-      }
-
-      return currentVideoClip.filePath;
-    };
-
     // Handle video time updates
     useEffect(() => {
       const video = videoRef.current;
@@ -204,7 +340,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
 
       const handleTimeUpdate = () => {
         const video = videoRef.current;
-        if (!video || video.paused) {
+        if (!video || video.paused || isChangingClips.current) {
           return;
         }
 
@@ -223,16 +359,35 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
 
       // Smooth playhead updates using requestAnimationFrame
       const smoothUpdate = () => {
-        if (video && !video.paused) {
+        if (video && !video.paused && currentClip && !isChangingClips.current) {
           const videoTime = video.currentTime;
           const timelineTime = getTimelineTimeFromVideoTime(videoTime);
 
-          updatePreview({ currentTime: timelineTime });
-          isUpdatingFromVideo.current = true;
-          setPlayheadPosition(timelineTime);
-          setTimeout(() => {
-            isUpdatingFromVideo.current = false;
-          }, 50);
+          // Check if we've reached the end of the current clip's trim range
+          if (videoTime >= currentClip.trimEnd - 0.05) {
+            // Find next clip
+            const nextClip = timelineSequence.clips.find(
+              (clip) => clip.startTime >= currentClip.endTime
+            );
+
+            if (nextClip) {
+              // Move to start of next clip
+              setPlayheadPosition(nextClip.startTime);
+              // Video time will be set by the clip change effect
+            } else {
+              // No more clips, pause at end
+              video.pause();
+              updatePreview({ isPlaying: false });
+            }
+          } else {
+            // Normal playback - update timeline position
+            updatePreview({ currentTime: timelineTime });
+            isUpdatingFromVideo.current = true;
+            setPlayheadPosition(timelineTime);
+            setTimeout(() => {
+              isUpdatingFromVideo.current = false;
+            }, 50);
+          }
         }
         animationFrameId = requestAnimationFrame(smoothUpdate);
       };
@@ -242,14 +397,18 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
       };
 
       const handleEnded = () => {
-        // Video ended - check if we need to move to next clip
+        // Video file ended - this handles when video physically ends
         if (currentClip) {
           const nextClip = timelineSequence.clips.find(
-            (clip) => clip.startTime > currentClip.endTime
+            (clip) => clip.startTime >= currentClip.endTime
           );
+
           if (nextClip) {
             // Move to next clip
             setPlayheadPosition(nextClip.startTime);
+          } else {
+            // No more clips, stop playback
+            updatePreview({ isPlaying: false });
           }
         }
       };
@@ -259,8 +418,6 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
       };
 
       const handlePause = () => {
-        console.log("⏸️ Video paused event fired");
-        console.trace("Pause call stack:");
         if (animationFrameId) {
           cancelAnimationFrame(animationFrameId);
         }
@@ -319,13 +476,16 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
           ref={videoRef}
           src={getVideoSrc()}
           className="w-full h-auto max-h-96"
-          preload="metadata"
+          preload="auto"
           onError={(e) => {
             console.error("Video error:", e);
             console.error("Video src:", getVideoSrc());
             console.error("Original file path:", currentVideoClip.filePath);
           }}
         />
+
+        {/* Hidden preload video for next clip */}
+        <video ref={preloadVideoRef} className="hidden" preload="auto" muted />
 
         {/* Current clip info overlay */}
         {currentClip && (

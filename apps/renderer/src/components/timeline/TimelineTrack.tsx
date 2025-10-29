@@ -15,6 +15,12 @@ interface TimelineTrackProps {
   zoomLevel?: number;
   onClipSelect: (clipId: string) => void;
   onTrim?: (clipId: string, trimStart: number, trimEnd: number) => void;
+  onReorder?: (clipId: string, newStartTime: number) => void;
+  onReorderRelative?: (
+    clipId: string,
+    targetClipId: string,
+    position: "before" | "after"
+  ) => void;
 }
 
 export const TimelineTrack: React.FC<TimelineTrackProps> = ({
@@ -26,12 +32,17 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
   zoomLevel = 1,
   onClipSelect,
   onTrim,
+  onReorder,
+  onReorderRelative,
 }) => {
   const trackHeight = 60;
   const trackTop = trackIndex * trackHeight;
 
   // Calculate clip positions and widths accounting for zoom
   const renderClips = () => {
+    const timelineWidth = canvasWidth - 100; // Subtract header width
+    const pixelsPerSecond = (timelineWidth / timelineDuration) * zoomLevel;
+
     return clips.map((clip) => {
       const clipDuration = clip.endTime - clip.startTime;
 
@@ -57,6 +68,10 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
           isSelected={clip.selected}
           onSelect={() => onClipSelect(clip.id)}
           onTrim={onTrim}
+          onReorder={onReorder}
+          onReorderRelative={onReorderRelative}
+          allClips={clips}
+          pixelsPerSecond={pixelsPerSecond}
         />
       );
     });

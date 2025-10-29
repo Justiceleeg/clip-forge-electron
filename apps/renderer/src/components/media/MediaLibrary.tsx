@@ -105,6 +105,19 @@ export const MediaLibrary: React.FC<MediaLibraryProps> = ({
     return `${width}x${height}`;
   };
 
+  // Handle drag start for dragging clips to timeline
+  const handleClipDragStart = useCallback(
+    (e: React.DragEvent, clip: VideoClip) => {
+      e.dataTransfer.effectAllowed = "copy";
+      e.dataTransfer.setData(
+        "application/x-clipforge-clip",
+        JSON.stringify(clip)
+      );
+      e.dataTransfer.setData("text/plain", clip.name); // Fallback
+    },
+    []
+  );
+
   return (
     <div
       className={`bg-gray-800 rounded-lg p-4 h-full transition-colors ${
@@ -154,8 +167,10 @@ export const MediaLibrary: React.FC<MediaLibraryProps> = ({
           {clips.map((clip) => (
             <div
               key={clip.id}
+              draggable
+              onDragStart={(e) => handleClipDragStart(e, clip)}
               onClick={() => onClipSelect(clip.id)}
-              className="bg-gray-700 rounded-lg p-3 cursor-pointer hover:bg-gray-600 transition-colors"
+              className="bg-gray-700 rounded-lg p-3 cursor-grab active:cursor-grabbing hover:bg-gray-600 transition-colors"
             >
               <div className="flex items-start space-x-3">
                 {/* Thumbnail placeholder */}

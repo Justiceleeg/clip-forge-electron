@@ -1,6 +1,13 @@
-import React, { useRef, useEffect, useState, useMemo } from "react";
+import React, {
+  useRef,
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+} from "react";
 import { useProjectStore } from "../../stores/projectStore";
 import { useTimelineStore } from "../../stores/timelineStore";
+import { VideoClip } from "@clipforge/shared";
 import { TimelineTrack } from "./TimelineTrack";
 import { Playhead } from "./Playhead";
 import { TimelineRuler } from "./TimelineRuler";
@@ -15,42 +22,70 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 0 });
+  const [isDragOver, setIsDragOver] = useState(false);
   const rulerHeight = 32; // Height for the timeline ruler
 
-  const { clips, selectClip: selectProjectClip } = useProjectStore();
+  const {
+    clips,
+    selectClip: selectProjectClip,
+    addClip: addProjectClip,
+  } = useProjectStore();
 
   const {
     timeline,
-    calculateTimelineDuration,
-    createTimelineTracks,
     setPlayheadPosition,
     selectClip,
     updateTimeline,
     setZoomLevel,
     trimClip,
-    resetClipTrim,
-    validateTrimPoints,
     trimMode,
     startTrimMode,
     updateTrimMode,
-    cancelTrimMode,
     applyTrimMode,
+    addClipToTrack,
+    reorderClip,
+    reorderClipRelative,
   } = useTimelineStore();
 
   // Calculate timeline data using useMemo to prevent unnecessary recalculations
   const timelineData = useMemo(() => {
-    const duration = calculateTimelineDuration(clips);
-    const tracks = createTimelineTracks(clips);
-    return { duration, tracks };
-  }, [clips, calculateTimelineDuration, createTimelineTracks]);
+    // Only calculate duration based on existing timeline clips, not project clips
+    const allTimelineClips = timeline.tracks.flatMap((track) => track.clips);
+    const duration =
+      allTimelineClips.length > 0
+        ? Math.max(...allTimelineClips.map((c) => c.endTime)) + 2
+        : 60; // Default 1 minute when empty
 
-  // Update timeline when clips change
+    return { duration };
+  }, [timeline.tracks]);
+
+  // Update timeline duration when it changes
   useEffect(() => {
-    updateTimeline({
-      duration: timelineData.duration,
-      tracks: timelineData.tracks,
-    });
-  }, [timelineData, updateTimeline]);
+    if (timelineData.duration !== timeline.duration) {
+      updateTimeline({
+        duration: timelineData.duration,
+      });
+    }
+  }, [timelineData.duration, timeline.duration, updateTimeline]);
+
+  // Initialize empty track on mount if none exist
+  useEffect(() => {
+    if (timeline.tracks.length === 0) {
+      updateTimeline({
+        tracks: [
+          {
+            id: "track-1",
+            name: "Video Track 1",
+            type: "video" as const,
+            clips: [],
+            muted: false,
+            volume: 1.0,
+          },
+        ],
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   // Update trim mode when playhead moves
   useEffect(() => {
@@ -104,6 +139,89 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
   const handleResetZoom = () => {
     setZoomLevel(1);
   };
+
+  // Handle drag and drop from media library
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Check if we're dragging a clip
+    if (e.dataTransfer.types.includes("application/x-clipforge-clip")) {
+      e.dataTransfer.dropEffect = "copy";
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+
+      try {
+        const clipData = e.dataTransfer.getData("application/x-clipforge-clip");
+        if (!clipData) return;
+
+        const clip: VideoClip = JSON.parse(clipData);
+
+        // Ensure the clip exists in the project store
+        const existingClip = clips.find((c) => c.id === clip.id);
+        if (!existingClip) {
+          // Add to project store if not already there
+          addProjectClip(clip);
+        }
+
+        // Get or create the first track
+        let track = timeline.tracks[0];
+        if (!track) {
+          // Create track if it doesn't exist
+          const newTrack = {
+            id: "track-1",
+            name: "Video Track 1",
+            type: "video" as const,
+            clips: [],
+            muted: false,
+            volume: 1.0,
+          };
+          updateTimeline({
+            tracks: [newTrack],
+          });
+          track = newTrack;
+        }
+
+        // Calculate position at the end of existing clips
+        const existingClips = track.clips;
+        const lastClipEnd =
+          existingClips.length > 0
+            ? Math.max(...existingClips.map((c) => c.endTime))
+            : 0;
+
+        // Add clip to timeline at the end
+        addClipToTrack(track.id, {
+          videoClipId: clip.id,
+          trackId: track.id,
+          startTime: lastClipEnd,
+          endTime: lastClipEnd + clip.duration,
+          trimStart: 0,
+          trimEnd: clip.duration,
+          originalDuration: clip.duration,
+          selected: false,
+        });
+
+        console.log(
+          `Added clip "${clip.name}" to timeline at position ${lastClipEnd}s`
+        );
+      } catch (err) {
+        console.error("Error handling clip drop:", err);
+      }
+    },
+    [clips, timeline.tracks, addProjectClip, addClipToTrack, updateTimeline]
+  );
 
   // Trim button handlers
   const handleTrimClick = () => {
@@ -296,7 +414,14 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
 
       <div
         ref={containerRef}
-        className="relative overflow-hidden flex-1 timeline-container"
+        className={`relative overflow-hidden flex-1 timeline-container ${
+          isDragOver
+            ? "bg-blue-900 bg-opacity-10 border-2 border-blue-400 border-dashed"
+            : ""
+        }`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
         {/* Timeline Ruler */}
         <div className="timeline-ruler">
@@ -382,6 +507,8 @@ export const Timeline: React.FC<TimelineProps> = ({ className = "" }) => {
                 }
               }}
               onTrim={trimClip}
+              onReorder={reorderClip}
+              onReorderRelative={reorderClipRelative}
             />
           ))}
         </div>

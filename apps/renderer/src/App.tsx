@@ -26,7 +26,6 @@ function App() {
   const { clips, addClip, selectClip } = useProjectStore();
   const { preview } = usePreviewStore();
   const { timeline } = useTimelineStore();
-  const { currentTime: rawCurrentTime, duration: rawDuration } = preview;
 
   // Calculate timeline-aware times for display
   const timelineDuration = timeline.tracks.reduce((total, track) => {
@@ -39,7 +38,7 @@ function App() {
     );
   }, 0);
 
-  const timelineCurrentTime = rawCurrentTime; // This should already be timeline time from VideoPlayer
+  const timelineCurrentTime = timeline.playheadPosition; // Use timeline position for immediate updates
 
   // Format time for display
   const formatTime = (seconds: number): string => {
