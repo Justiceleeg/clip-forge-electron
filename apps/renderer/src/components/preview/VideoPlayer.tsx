@@ -128,13 +128,21 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
           videoRef.current.currentTime = videoTime;
 
           // If playing, ensure video continues playing after seek
+          // Only call play() if video is ready (readyState >= HAVE_CURRENT_DATA)
+          // Otherwise, let the loadeddata handler resume playback
           if (preview.isPlaying && videoRef.current.paused) {
-            videoRef.current.play().catch((error) => {
-              console.error(
-                "Error resuming playback after clip change:",
-                error
-              );
-            });
+            // Check if video is ready to play (has loaded enough data)
+            if (videoRef.current.readyState >= 2) {
+              videoRef.current.play().catch((error) => {
+                console.error(
+                  "Error resuming playback after clip change:",
+                  error
+                );
+              });
+            } else {
+              // Video not ready yet, mark that we should resume when it loads
+              shouldResumePlayback.current = true;
+            }
           }
 
           // Set a timeout to clear the flag (will be cancelled if video source changes)

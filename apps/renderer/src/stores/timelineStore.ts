@@ -29,6 +29,7 @@ interface TimelineState {
   // Clip actions
   addClipToTrack: (trackId: string, clip: Omit<TimelineClip, "id">) => void;
   removeClipFromTrack: (trackId: string, clipId: string) => void;
+  removeClip: (clipId: string) => void; // Helper that finds track automatically
   updateClip: (clipId: string, updates: Partial<TimelineClip>) => void;
   selectClip: (clipId: string) => void;
   deselectAllClips: () => void;
@@ -186,19 +187,46 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   },
 
   removeClipFromTrack: (trackId, clipId) =>
-    set((state) => ({
-      timeline: {
-        ...state.timeline,
-        tracks: state.timeline.tracks.map((track) =>
-          track.id === trackId
-            ? {
-                ...track,
-                clips: track.clips.filter((clip) => clip.id !== clipId),
-              }
-            : track
-        ),
-      },
-    })),
+    set((state) => {
+      const updatedTracks = state.timeline.tracks.map((track) =>
+        track.id === trackId
+          ? {
+              ...track,
+              clips: track.clips.filter((clip) => clip.id !== clipId),
+            }
+          : track
+      );
+
+      // Recalculate timeline duration after removal
+      const allClips = updatedTracks.flatMap((track) => track.clips);
+      const newDuration =
+        allClips.length > 0
+          ? Math.max(
+              state.timeline.duration,
+              Math.max(...allClips.map((c) => c.endTime)) + 2
+            )
+          : state.timeline.duration;
+
+      return {
+        timeline: {
+          ...state.timeline,
+          tracks: updatedTracks,
+          duration: newDuration,
+        },
+      };
+    }),
+
+  removeClip: (clipId) => {
+    const { timeline } = get();
+    const track = timeline.tracks.find((t) =>
+      t.clips.some((c) => c.id === clipId)
+    );
+    if (track) {
+      get().removeClipFromTrack(track.id, clipId);
+      // Deselect the clip if it was selected
+      get().deselectAllClips();
+    }
+  },
 
   updateClip: (clipId, updates) =>
     set((state) => ({
