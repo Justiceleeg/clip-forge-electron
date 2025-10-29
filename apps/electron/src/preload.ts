@@ -28,10 +28,23 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }
   },
   openFileDialog: () => ipcRenderer.invoke("open-file-dialog"),
+  showSaveDialog: (options: {
+    title: string;
+    defaultPath: string;
+    filters: Array<{ name: string; extensions: string[] }>;
+  }) => ipcRenderer.invoke("show-save-dialog", options),
   saveProject: (project: any) =>
     ipcRenderer.invoke("save-project", { project }),
   loadProject: (filePath: string) =>
     ipcRenderer.invoke("load-project", { filePath }),
+
+  // Video export
+  exportVideo: (data: {
+    timeline: any;
+    clips: any[];
+    outputPath: string;
+    settings: any;
+  }) => ipcRenderer.invoke("export-video", data),
 
   // Event listeners
   onFileImported: (callback: (event: any, data: any) => void) => {
@@ -49,6 +62,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onProjectLoaded: (callback: (event: any, data: any) => void) => {
     ipcRenderer.on("project-loaded", callback);
   },
+  onVideoProcessed: (callback: (event: any, data: any) => void) => {
+    ipcRenderer.on("video-processed", callback);
+  },
+  onVideoProcessingProgress: (callback: (event: any, data: any) => void) => {
+    ipcRenderer.on("video-processing-progress", callback);
+  },
+  onVideoProcessingError: (callback: (event: any, data: any) => void) => {
+    ipcRenderer.on("video-processing-error", callback);
+  },
 
   // Remove listeners
   removeAllListeners: (channel: string) => {
@@ -64,5 +86,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   sendLoadProject: (filePath: string) => {
     ipcRenderer.send("load-project", { filePath });
+  },
+  sendExportVideo: (data: {
+    timeline: any;
+    clips: any[];
+    outputPath: string;
+    settings: any;
+  }) => {
+    ipcRenderer.send("export-video", data);
   },
 });

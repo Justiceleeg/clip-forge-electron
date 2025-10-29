@@ -1,6 +1,14 @@
 import { ipcMain, dialog } from "electron";
 import { fileService } from "../services/fileService";
-import { VideoClip, FileCommands, FileEvents } from "@clipforge/shared";
+import { ffmpegService } from "../services/ffmpegService";
+import {
+  VideoClip,
+  FileCommands,
+  FileEvents,
+  VideoEvents,
+  ExportSettings,
+  Timeline,
+} from "@clipforge/shared";
 
 export class IPCHandlers {
   private mainWindow: Electron.BrowserWindow | null = null;
@@ -107,6 +115,78 @@ export class IPCHandlers {
       }
     });
 
+    // Save dialog handler for export
+    ipcMain.handle(
+      "show-save-dialog",
+      async (
+        event,
+        options: {
+          title: string;
+          defaultPath: string;
+          filters: Array<{ name: string; extensions: string[] }>;
+        }
+      ) => {
+        try {
+          const result = await dialog.showSaveDialog(this.mainWindow!, {
+            title: options.title,
+            defaultPath: options.defaultPath,
+            filters: options.filters,
+          });
+
+          if (result.canceled) {
+            return { canceled: true };
+          }
+
+          return {
+            canceled: false,
+            filePath: result.filePath,
+          };
+        } catch (error) {
+          console.error("Error showing save dialog:", error);
+          throw error;
+        }
+      }
+    );
+
+    // Video export handler
+    ipcMain.handle(
+      "export-video",
+      async (
+        event,
+        data: {
+          timeline: Timeline;
+          clips: VideoClip[];
+          outputPath: string;
+          settings: ExportSettings;
+        }
+      ) => {
+        try {
+          const { timeline, clips, outputPath, settings } = data;
+
+          // Export timeline with progress tracking
+          await ffmpegService.exportTimeline(
+            timeline,
+            clips,
+            outputPath,
+            settings,
+            (progress) => {
+              // Send progress update to renderer
+              this.sendVideoEvent("video-processing-progress", { progress });
+            }
+          );
+
+          // Send completion event
+          this.sendVideoEvent("video-processed", { outputPath });
+        } catch (error) {
+          console.error("Error exporting video:", error);
+          this.sendVideoError(
+            "video-processing-error",
+            error instanceof Error ? error.message : "Failed to export video"
+          );
+        }
+      }
+    );
+
     // Project save handler
     ipcMain.handle(
       "save-project",
@@ -177,7 +257,22 @@ export class IPCHandlers {
     }
   }
 
+  private sendVideoEvent<K extends keyof VideoEvents>(
+    event: K,
+    data: VideoEvents[K]
+  ): void {
+    if (this.mainWindow) {
+      this.mainWindow.webContents.send(event as string, data);
+    }
+  }
+
   private sendError(event: string, error: string): void {
+    if (this.mainWindow) {
+      this.mainWindow.webContents.send(event, { error });
+    }
+  }
+
+  private sendVideoError(event: string, error: string): void {
     if (this.mainWindow) {
       this.mainWindow.webContents.send(event, { error });
     }

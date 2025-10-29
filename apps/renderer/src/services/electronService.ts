@@ -1,4 +1,9 @@
-import { VideoClip, Project, FileEvents } from "@clipforge/shared";
+import {
+  VideoClip,
+  Project,
+  FileEvents,
+  ExportSettings,
+} from "@clipforge/shared";
 
 // Type-safe IPC communication with Electron main process
 export class ElectronService {
@@ -22,6 +27,26 @@ export class ElectronService {
       return await (window as any).electronAPI.openFileDialog();
     } catch (error) {
       console.error("Error opening file dialog:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Show save dialog for export
+   */
+  async showSaveDialog(options: {
+    title: string;
+    defaultPath: string;
+    filters: Array<{ name: string; extensions: string[] }>;
+  }): Promise<{ canceled: boolean; filePath?: string }> {
+    if (!this.isElectron) {
+      throw new Error("Electron service not available in web environment");
+    }
+
+    try {
+      return await (window as any).electronAPI.showSaveDialog(options);
+    } catch (error) {
+      console.error("Error showing save dialog:", error);
       throw error;
     }
   }
@@ -124,6 +149,67 @@ export class ElectronService {
 
       (window as any).electronAPI.sendLoadProject(filePath);
     });
+  }
+
+  /**
+   * Export timeline with progress tracking
+   */
+  async exportTimeline(
+    timeline: any,
+    clips: any[],
+    outputPath: string,
+    settings: ExportSettings,
+    onProgress?: (progress: number, status: string) => void
+  ): Promise<void> {
+    if (!this.isElectron) {
+      throw new Error("Electron service not available in web environment");
+    }
+
+    // Set up progress listener before invoking
+    if (onProgress) {
+      const progressHandler = (_event: any, data: { progress: number }) => {
+        onProgress(data.progress, "Exporting...");
+      };
+      (window as any).electronAPI.onVideoProcessingProgress(progressHandler);
+    }
+
+    // Set up completion/error listeners
+    const successHandler = (_event: any, _data: { outputPath: string }) => {
+      (window as any).electronAPI.removeAllListeners("video-processed");
+      (window as any).electronAPI.removeAllListeners("video-processing-error");
+      (window as any).electronAPI.removeAllListeners(
+        "video-processing-progress"
+      );
+    };
+
+    const errorHandler = (_event: any, data: { error: string }) => {
+      (window as any).electronAPI.removeAllListeners("video-processed");
+      (window as any).electronAPI.removeAllListeners("video-processing-error");
+      (window as any).electronAPI.removeAllListeners(
+        "video-processing-progress"
+      );
+    };
+
+    (window as any).electronAPI.onVideoProcessed(successHandler);
+    (window as any).electronAPI.onVideoProcessingError(errorHandler);
+
+    try {
+      // Use invoke to call the handler - this will wait for completion
+      await (window as any).electronAPI.exportVideo({
+        timeline,
+        clips,
+        outputPath,
+        settings,
+      });
+    } catch (error) {
+      // Clean up listeners on error
+      (window as any).electronAPI.removeAllListeners("video-processed");
+      (window as any).electronAPI.removeAllListeners("video-processing-error");
+      (window as any).electronAPI.removeAllListeners(
+        "video-processing-progress"
+      );
+      throw error;
+    }
   }
 
   /**

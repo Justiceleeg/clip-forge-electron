@@ -1,12 +1,14 @@
 import { useState, useRef } from "react";
 import { ImportDialog } from "./components/media/ImportDialog";
+import { ExportDialog } from "./components/export/ExportDialog";
 import { MediaLibrary } from "./components/media/MediaLibrary";
 import { Timeline } from "./components/timeline/Timeline";
 import { VideoPlayer, VideoPlayerRef } from "./components/preview/VideoPlayer";
 import { useProjectStore } from "./stores/projectStore";
 import { usePreviewStore } from "./stores/previewStore";
 import { useTimelineStore } from "./stores/timelineStore";
-import { VideoClip } from "@clipforge/shared";
+import { VideoClip, ExportSettings } from "@clipforge/shared";
+import { electronService } from "./services/electronService";
 import {
   Upload,
   Download,
@@ -14,16 +16,25 @@ import {
   Play,
   SkipBack,
   SkipForward,
-  RotateCcw,
-  RotateCw,
-  Video,
-  Film,
 } from "lucide-react";
 
 function App() {
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
   const videoPlayerRef = useRef<VideoPlayerRef>(null);
-  const { clips, addClip, selectClip } = useProjectStore();
+  const {
+    clips,
+    selectedClip,
+    addClip,
+    selectClip,
+    isExporting,
+    exportProgress,
+    exportStatus,
+    setExporting,
+    setExportProgress,
+    setExportStatus,
+    setError,
+  } = useProjectStore();
   const { preview } = usePreviewStore();
   const { timeline } = useTimelineStore();
 
@@ -99,6 +110,64 @@ function App() {
     }
   };
 
+  const handleExport = async (outputPath: string, settings: ExportSettings) => {
+    // Check if there are clips on the timeline
+    const hasClips = timeline.tracks.some(
+      (track) => track.clips && track.clips.length > 0
+    );
+
+    if (!hasClips) {
+      setError("No clips on timeline to export");
+      return;
+    }
+
+    try {
+      setExporting(true);
+      setExportProgress(0);
+      setExportStatus("Starting export...");
+
+      await electronService.exportTimeline(
+        timeline,
+        clips,
+        outputPath,
+        settings,
+        (progress, status) => {
+          setExportProgress(progress);
+          setExportStatus(status);
+        }
+      );
+
+      setExportProgress(100);
+      setExportStatus("Export complete!");
+
+      // Close dialog after a brief delay
+      setTimeout(() => {
+        setShowExportDialog(false);
+        setExporting(false);
+        setExportProgress(0);
+        setExportStatus("");
+      }, 2000);
+    } catch (error) {
+      console.error("Export failed:", error);
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Export failed. Please try again."
+      );
+      setExporting(false);
+      setExportProgress(0);
+      setExportStatus("");
+    }
+  };
+
+  const handleCancelExport = () => {
+    if (!isExporting) {
+      setShowExportDialog(false);
+      setExportProgress(0);
+      setExportStatus("");
+    }
+  };
+
   return (
     <div className="h-screen bg-gray-900 text-white flex flex-col">
       {/* Toolbar */}
@@ -111,7 +180,11 @@ function App() {
           Import
         </button>
         <button
-          disabled={clips.length === 0}
+          onClick={() => setShowExportDialog(true)}
+          disabled={
+            timeline.tracks.length === 0 ||
+            !timeline.tracks.some((t) => t.clips && t.clips.length > 0)
+          }
           className="flex items-center gap-1 px-2 py-1 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-500 disabled:cursor-not-allowed text-white text-sm font-medium rounded transition-colors"
         >
           <Download className="w-3 h-3" />
@@ -127,7 +200,7 @@ function App() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-h-0">
         {/* Top Container - Takes 2/3 of available space */}
-        <div className="flex flex-[2] min-h-0">
+        <div className="flex flex-2 min-h-0">
           {/* Media Library Panel */}
           <div className="w-64 bg-gray-800 border-r border-gray-700">
             <MediaLibrary
@@ -197,7 +270,7 @@ function App() {
         </div>
 
         {/* Timeline Section - Takes 1/3 of available space */}
-        <div className="flex-[1] bg-gray-800 border-t border-gray-700 min-h-0">
+        <div className="flex-1 bg-gray-800 border-t border-gray-700 min-h-0">
           <Timeline className="h-full" />
         </div>
       </div>
@@ -207,6 +280,18 @@ function App() {
         isOpen={showImportDialog}
         onImport={handleImport}
         onCancel={handleCancelImport}
+      />
+
+      {/* Export Dialog */}
+      <ExportDialog
+        isOpen={showExportDialog}
+        onExport={handleExport}
+        onCancel={handleCancelExport}
+        timeline={timeline}
+        clips={clips}
+        progress={exportProgress}
+        status={exportStatus}
+        isExporting={isExporting}
       />
     </div>
   );

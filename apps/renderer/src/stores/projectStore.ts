@@ -28,6 +28,11 @@ interface ProjectState {
   isImporting: boolean;
   importProgress: number;
 
+  // Export state
+  isExporting: boolean;
+  exportProgress: number;
+  exportStatus: string;
+
   // Actions
   setCurrentProject: (project: Project | null) => void;
   addClip: (clip: VideoClip) => void;
@@ -41,6 +46,9 @@ interface ProjectState {
   setError: (error: string | null) => void;
   setImporting: (importing: boolean) => void;
   setImportProgress: (progress: number) => void;
+  setExporting: (exporting: boolean) => void;
+  setExportProgress: (progress: number) => void;
+  setExportStatus: (status: string) => void;
   clearError: () => void;
   reset: () => void;
 }
@@ -74,6 +82,9 @@ export const useProjectStore = create<ProjectState>((set) => ({
   error: null,
   isImporting: false,
   importProgress: 0,
+  isExporting: false,
+  exportProgress: 0,
+  exportStatus: "",
 
   // Actions
   setCurrentProject: (project) => set({ currentProject: project }),
@@ -114,6 +125,12 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   setImportProgress: (progress) => set({ importProgress: progress }),
 
+  setExporting: (exporting) => set({ isExporting: exporting }),
+
+  setExportProgress: (progress) => set({ exportProgress: progress }),
+
+  setExportStatus: (status) => set({ exportStatus: status }),
+
   clearError: () => set({ error: null }),
 
   reset: () =>
@@ -127,5 +144,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
       error: null,
       isImporting: false,
       importProgress: 0,
+      isExporting: false,
+      exportProgress: 0,
+      exportStatus: "",
     }),
 }));
