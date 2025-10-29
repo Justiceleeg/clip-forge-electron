@@ -37,6 +37,9 @@ export class FileService {
     try {
       const fileName = basename(filePath);
 
+      // Check if file exists and get size
+      const stats = await fs.stat(filePath);
+
       // Check if FFmpeg is available
       const ffmpegAvailable = await ffmpegService.checkFFmpegAvailability();
 

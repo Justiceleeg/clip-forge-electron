@@ -33,9 +33,9 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
   onSelect,
   onTrim,
   onReorder,
-  onReorderRelative,
+  onReorderRelative: _onReorderRelative,
   onMoveToTrack,
-  allClips,
+  allClips: _allClips,
   pixelsPerSecond,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
@@ -168,7 +168,6 @@ export const TimelineClip: React.FC<TimelineClipProps> = ({
       isDragging.current = true;
 
       const startX = e.clientX;
-      const startY = e.clientY;
 
       // Body drag for repositioning and cross-track movement
       if (trimZone === "body") {

@@ -1,5 +1,12 @@
 import { VideoClip, ExportSettings, Timeline } from "@clipforge/shared";
 
+export interface ScreenSource {
+  id: string;
+  name: string;
+  thumbnail: string | null;
+  type: "screen" | "window";
+}
+
 export interface ElectronAPI {
   // File operations
   importVideo: (filePath: string) => Promise<VideoClip>;
@@ -25,6 +32,20 @@ export interface ElectronAPI {
     settings: ExportSettings;
   }) => Promise<void>;
 
+  // Recording operations
+  getScreenSources: () => Promise<ScreenSource[]>;
+  startScreenRecording: (data: {
+    sourceId: string;
+    includeAudio?: boolean;
+  }) => Promise<{ success: boolean; error?: string }>;
+  stopRecording: () => Promise<{ filePath: string }>;
+  saveRecording: (chunks: Uint8Array[]) => Promise<{ filePath: string }>;
+  getRecordingState: () => Promise<{
+    isRecording: boolean;
+    duration: number | null;
+    outputPath: string | null;
+  }>;
+
   // Event listeners
   onFileImported: (callback: (event: any, data: any) => void) => void;
   onFileImportError: (callback: (event: any, data: any) => void) => void;
@@ -36,6 +57,11 @@ export interface ElectronAPI {
     callback: (event: any, data: any) => void
   ) => void;
   onVideoProcessingError: (callback: (event: any, data: any) => void) => void;
+
+  // Recording event listeners
+  onRecordingStarted: (callback: (event: any, data: any) => void) => void;
+  onRecordingStopped: (callback: (event: any, data: any) => void) => void;
+  onRecordingError: (callback: (event: any, data: any) => void) => void;
 
   // Remove listeners
   removeAllListeners: (channel: string) => void;

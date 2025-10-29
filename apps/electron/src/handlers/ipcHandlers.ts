@@ -1,11 +1,13 @@
 import { ipcMain, dialog } from "electron";
 import { fileService } from "../services/fileService";
 import { ffmpegService } from "../services/ffmpegService";
+import { recordingService } from "../services/recordingService";
 import {
   VideoClip,
   FileCommands,
   FileEvents,
   VideoEvents,
+  RecordingEvents,
   ExportSettings,
   Timeline,
 } from "@clipforge/shared";
@@ -246,6 +248,97 @@ export class IPCHandlers {
         }
       }
     );
+
+    // Recording handlers
+    ipcMain.handle("get-screen-sources", async () => {
+      try {
+        const sources = await recordingService.getScreenSources();
+        return sources;
+      } catch (error) {
+        console.error("Error getting screen sources:", error);
+        throw error;
+      }
+    });
+
+    ipcMain.handle(
+      "start-screen-recording",
+      async (
+        event,
+        data: { sourceId: string; includeAudio?: boolean }
+      ) => {
+        try {
+          const { sourceId, includeAudio = false } = data;
+          const result = await recordingService.startScreenRecording(
+            sourceId,
+            includeAudio
+          );
+          
+          if (result.success) {
+            this.sendRecordingEvent("recording-started", { success: true });
+            return result;
+          } else {
+            this.sendRecordingEvent("recording-error", { 
+              error: result.error || "Failed to start recording" 
+            });
+            throw new Error(result.error || "Failed to start recording");
+          }
+        } catch (error) {
+          console.error("Error starting screen recording:", error);
+          this.sendRecordingEvent("recording-error", {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to start screen recording",
+          });
+          throw error;
+        }
+      }
+    );
+
+    ipcMain.handle(
+      "stop-recording",
+      async () => {
+        try {
+          const result = await recordingService.stopRecording();
+          this.sendRecordingEvent("recording-stopped", {
+            outputPath: result.filePath,
+          });
+          return result;
+        } catch (error) {
+          console.error("Error stopping recording:", error);
+          this.sendRecordingEvent("recording-error", {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to stop recording",
+          });
+          throw error;
+        }
+      }
+    );
+
+    ipcMain.handle(
+      "save-recording",
+      async (event, data: { chunks: Uint8Array[] }) => {
+        try {
+          const { chunks } = data;
+          const filePath = await recordingService.saveRecording(chunks);
+          return { filePath };
+        } catch (error) {
+          console.error("Error saving recording:", error);
+          throw error;
+        }
+      }
+    );
+
+    ipcMain.handle("get-recording-state", async () => {
+      try {
+        return recordingService.getRecordingState();
+      } catch (error) {
+        console.error("Error getting recording state:", error);
+        throw error;
+      }
+    });
   }
 
   private sendEvent<K extends keyof FileEvents>(
@@ -291,6 +384,19 @@ export class IPCHandlers {
       !this.mainWindow.webContents.isDestroyed()
     ) {
       this.mainWindow.webContents.send(event, { error });
+    }
+  }
+
+  private sendRecordingEvent<K extends keyof RecordingEvents>(
+    event: K,
+    data: RecordingEvents[K]
+  ): void {
+    if (
+      this.mainWindow &&
+      !this.mainWindow.isDestroyed() &&
+      !this.mainWindow.webContents.isDestroyed()
+    ) {
+      this.mainWindow.webContents.send(event as string, data);
     }
   }
 }

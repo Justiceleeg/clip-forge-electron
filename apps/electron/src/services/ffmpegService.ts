@@ -476,6 +476,28 @@ export class FFmpegService {
 
     return parseFloat(frameRate) || 0;
   }
+
+  /**
+   * Fix WebM duration metadata by re-muxing the file
+   * This is needed because browser MediaRecorder doesn't write duration properly
+   */
+  async fixWebMDuration(inputPath: string, outputPath: string): Promise<void> {
+    const args = [
+      "-i",
+      inputPath,
+      "-c",
+      "copy", // Copy without re-encoding (fast)
+      "-y", // Overwrite output
+      outputPath,
+    ];
+
+    try {
+      await this.runCommand(this.ffmpegPath, args);
+    } catch (error) {
+      console.error("Error fixing WebM duration:", error);
+      throw new Error(`Failed to fix WebM duration: ${error}`);
+    }
+  }
 }
 
 export const ffmpegService = new FFmpegService();

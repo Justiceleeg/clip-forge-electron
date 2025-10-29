@@ -46,6 +46,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
     settings: any;
   }) => ipcRenderer.invoke("export-video", data),
 
+  // Recording operations
+  getScreenSources: () => ipcRenderer.invoke("get-screen-sources"),
+  startScreenRecording: (data: { sourceId: string; includeAudio?: boolean }) =>
+    ipcRenderer.invoke("start-screen-recording", data),
+  stopRecording: () => ipcRenderer.invoke("stop-recording"),
+  saveRecording: (chunks: Uint8Array[]) =>
+    ipcRenderer.invoke("save-recording", { chunks }),
+  getRecordingState: () => ipcRenderer.invoke("get-recording-state"),
+
   // Event listeners
   onFileImported: (callback: (event: any, data: any) => void) => {
     ipcRenderer.on("file-imported", callback);
@@ -70,6 +79,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   onVideoProcessingError: (callback: (event: any, data: any) => void) => {
     ipcRenderer.on("video-processing-error", callback);
+  },
+
+  // Recording event listeners
+  onRecordingStarted: (callback: (event: any, data: any) => void) => {
+    ipcRenderer.on("recording-started", callback);
+  },
+  onRecordingStopped: (callback: (event: any, data: any) => void) => {
+    ipcRenderer.on("recording-stopped", callback);
+  },
+  onRecordingError: (callback: (event: any, data: any) => void) => {
+    ipcRenderer.on("recording-error", callback);
   },
 
   // Remove listeners

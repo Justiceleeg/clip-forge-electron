@@ -4,6 +4,7 @@ import {
   FileEvents,
   ExportSettings,
 } from "@clipforge/shared";
+import { ScreenSource } from "../types/electron";
 
 // Type-safe IPC communication with Electron main process
 export class ElectronService {
@@ -217,6 +218,124 @@ export class ElectronService {
    */
   isElectronEnvironment(): boolean {
     return this.isElectron;
+  }
+
+  /**
+   * Get available screen sources for recording
+   */
+  async getScreenSources(): Promise<ScreenSource[]> {
+    if (!this.isElectron) {
+      throw new Error("Electron service not available in web environment");
+    }
+
+    try {
+      return await (window as any).electronAPI.getScreenSources();
+    } catch (error) {
+      console.error("Error getting screen sources:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Start screen recording
+   */
+  async startScreenRecording(
+    sourceId: string,
+    includeAudio: boolean = false
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!this.isElectron) {
+      throw new Error("Electron service not available in web environment");
+    }
+
+    try {
+      return await (window as any).electronAPI.startScreenRecording({
+        sourceId,
+        includeAudio,
+      });
+    } catch (error) {
+      console.error("Error starting screen recording:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Stop screen recording
+   */
+  async stopRecording(): Promise<{ filePath: string }> {
+    if (!this.isElectron) {
+      throw new Error("Electron service not available in web environment");
+    }
+
+    try {
+      return await (window as any).electronAPI.stopRecording();
+    } catch (error) {
+      console.error("Error stopping recording:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save recording chunks to file
+   */
+  async saveRecording(chunks: Uint8Array[]): Promise<{ filePath: string }> {
+    if (!this.isElectron) {
+      throw new Error("Electron service not available in web environment");
+    }
+
+    try {
+      return await (window as any).electronAPI.saveRecording(chunks);
+    } catch (error) {
+      console.error("Error saving recording:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get current recording state
+   */
+  async getRecordingState(): Promise<{
+    isRecording: boolean;
+    duration: number | null;
+    outputPath: string | null;
+  }> {
+    if (!this.isElectron) {
+      throw new Error("Electron service not available in web environment");
+    }
+
+    try {
+      return await (window as any).electronAPI.getRecordingState();
+    } catch (error) {
+      console.error("Error getting recording state:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Listen for recording events
+   */
+  onRecordingStarted(callback: (data: { success: boolean }) => void): void {
+    if (!this.isElectron) return;
+    (window as any).electronAPI.onRecordingStarted(
+      (_event: any, data: any) => {
+        callback(data);
+      }
+    );
+  }
+
+  onRecordingStopped(callback: (data: { outputPath: string }) => void): void {
+    if (!this.isElectron) return;
+    (window as any).electronAPI.onRecordingStopped(
+      (_event: any, data: any) => {
+        callback(data);
+      }
+    );
+  }
+
+  onRecordingError(callback: (data: { error: string }) => void): void {
+    if (!this.isElectron) return;
+    (window as any).electronAPI.onRecordingError((_event: any, data: any) => {
+      callback(data);
+    });
   }
 }
 

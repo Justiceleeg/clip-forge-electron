@@ -4,6 +4,7 @@ import { ExportDialog } from "./components/export/ExportDialog";
 import { MediaLibrary } from "./components/media/MediaLibrary";
 import { Timeline } from "./components/timeline/Timeline";
 import { VideoPlayer, VideoPlayerRef } from "./components/preview/VideoPlayer";
+import { RecordingControls } from "./components/recording/RecordingControls";
 import { useProjectStore } from "./stores/projectStore";
 import { usePreviewStore } from "./stores/previewStore";
 import { useTimelineStore } from "./stores/timelineStore";
@@ -168,6 +169,29 @@ function App() {
     }
   };
 
+  const handleRecordingComplete = async (filePath: string) => {
+    try {
+      // Wait a bit for the file to be fully written and flushed
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Auto-import the recorded video
+      const clip = await electronService.importVideo(filePath);
+      
+      if (clip.duration === 0) {
+        setError("Recording imported but has no duration. The video file may be corrupted.");
+      }
+      
+      addClip(clip);
+    } catch (error) {
+      console.error("Error importing recorded video:", error);
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Failed to import recorded video"
+      );
+    }
+  };
+
   return (
     <div className="h-screen bg-gray-900 text-white flex flex-col">
       {/* Toolbar */}
@@ -190,6 +214,10 @@ function App() {
           <Upload className="w-3 h-3" />
           Export
         </button>
+        
+        {/* Recording Controls */}
+        <RecordingControls onRecordingComplete={handleRecordingComplete} />
+        
         <div className="ml-auto">
           <button className="p-1 text-gray-400 hover:text-white transition-colors">
             <Settings className="w-4 h-4" />
