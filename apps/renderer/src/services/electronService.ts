@@ -168,8 +168,8 @@ export class ElectronService {
 
     // Set up progress listener before invoking
     if (onProgress) {
-      const progressHandler = (_event: any, data: { progress: number }) => {
-        onProgress(data.progress, "Exporting...");
+      const progressHandler = (_event: any, data: { progress: number; message?: string }) => {
+        onProgress(data.progress, data.message || "Exporting...");
       };
       (window as any).electronAPI.onVideoProcessingProgress(progressHandler);
     }

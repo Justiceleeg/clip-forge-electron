@@ -86,7 +86,7 @@ export interface FileEvents {
 
 export interface VideoEvents {
   "video-processed": { outputPath: string };
-  "video-processing-progress": { progress: number };
+  "video-processing-progress": { progress: number; message?: string };
   "video-processing-error": { error: string };
   "thumbnail-generated": { clipId: string; thumbnailPath: string };
 }

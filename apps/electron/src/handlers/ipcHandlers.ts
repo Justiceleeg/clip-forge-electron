@@ -171,9 +171,15 @@ export class IPCHandlers {
             clips,
             outputPath,
             settings,
-            (progress) => {
+            (progress, message) => {
               // Send progress update to renderer
-              this.sendVideoEvent("video-processing-progress", { progress });
+              const progressData: { progress: number; message?: string } = {
+                progress,
+              };
+              if (message) {
+                progressData.message = message;
+              }
+              this.sendVideoEvent("video-processing-progress", progressData);
             }
           );
 

@@ -35,17 +35,30 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Calculate timeline duration and clip count
-  const videoTrack = timeline.tracks.find((track) => track.type === "video");
-  const clipCount = videoTrack?.clips.length || 0;
+  // Calculate timeline duration and clip count from ALL video tracks
+  const videoTracks = timeline.tracks.filter((track) => track.type === "video");
+  const clipCount = videoTracks.reduce((total, track) => total + track.clips.length, 0);
+  
+  // Calculate actual export duration: max endTime across all clips on all tracks
   const timelineDuration =
-    videoTrack?.clips.reduce((total, clip) => {
-      return total + (clip.trimEnd - clip.trimStart);
-    }, 0) || 0;
+    videoTracks.length > 0
+      ? Math.max(
+          ...videoTracks.flatMap((track) =>
+            track.clips.map((clip) => clip.endTime)
+          )
+        )
+      : 0;
 
   const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
+    if (isNaN(seconds) || !isFinite(seconds) || seconds < 0) {
+      return "0:00";
+    }
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    }
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
@@ -76,8 +89,35 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     }
   };
 
+  const validateExport = (): { isValid: boolean; error?: string } => {
+    if (clipCount === 0) {
+      return { isValid: false, error: "No clips on timeline to export" };
+    }
+    if (!outputPath) {
+      return { isValid: false, error: "Please select a save location" };
+    }
+    if (timelineDuration <= 0) {
+      return { isValid: false, error: "Timeline duration is invalid" };
+    }
+    // Validate all clips have valid source files
+    const allVideoClips = videoTracks.flatMap((track) => track.clips);
+    const missingClips = allVideoClips.filter((clip) => {
+      const sourceClip = clips.find((c) => c.id === clip.videoClipId);
+      return !sourceClip;
+    });
+    if (missingClips.length > 0) {
+      return { isValid: false, error: `Missing source files for ${missingClips.length} clip(s)` };
+    }
+    return { isValid: true };
+  };
+
   const handleExport = () => {
-    if (!outputPath || clipCount === 0) return;
+    const validation = validateExport();
+    if (!validation.isValid) {
+      // Show error to user (could be improved with a toast/notification)
+      console.error("Export validation failed:", validation.error);
+      return;
+    }
     onExport(outputPath, settings);
   };
 
@@ -118,7 +158,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
             <div className="bg-gray-900 rounded-lg p-4 space-y-2">
               <h3 className="text-sm font-medium text-gray-400">Timeline</h3>
               <p className="text-white font-medium">
-                {clipCount} clip{clipCount !== 1 ? "s" : ""} •{" "}
+                {clipCount} clip{clipCount !== 1 ? "s" : ""} on {videoTracks.length} track{videoTracks.length !== 1 ? "s" : ""} •{" "}
                 {formatTime(timelineDuration)}
               </p>
               <div className="flex items-center gap-4 text-sm text-gray-400">
@@ -134,9 +174,22 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
               </div>
               {clipCount > 1 && (
                 <div className="text-sm text-blue-400">
-                  ✓ Multiple clips will be concatenated
+                  ✓ Multiple clips will be exported in sequence
                 </div>
               )}
+              {videoTracks.length > 1 && (
+                <div className="text-sm text-blue-400">
+                  ✓ Multiple tracks will be composited (overlays)
+                </div>
+              )}
+            </div>
+          )}
+          
+          {clipCount === 0 && (
+            <div className="bg-yellow-900/30 border border-yellow-700 rounded-lg p-4">
+              <p className="text-yellow-400 text-sm">
+                ⚠️ No clips on timeline. Add clips to export.
+              </p>
             </div>
           )}
 
@@ -311,6 +364,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
             onClick={handleExport}
             disabled={!outputPath || clipCount === 0 || isExporting}
             className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium rounded transition-colors"
+            title={!outputPath || clipCount === 0 ? "Please select location and ensure timeline has clips" : ""}
           >
             <Download className="w-4 h-4" />
             {isExporting ? "Exporting..." : "Export"}
