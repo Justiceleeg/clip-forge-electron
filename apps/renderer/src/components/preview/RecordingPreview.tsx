@@ -2,16 +2,19 @@ import { useRef, useEffect } from "react";
 
 interface RecordingPreviewProps {
   stream: MediaStream | null;
-  mode: 'screen' | 'webcam' | 'screen+webcam' | null;
+  mode: 'screen' | 'webcam' | 'simultaneous' | null;
+  webcamStream?: MediaStream | null;
   className?: string;
 }
 
 export const RecordingPreview: React.FC<RecordingPreviewProps> = ({
   stream,
   mode,
+  webcamStream,
   className = "",
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const webcamRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -27,6 +30,22 @@ export const RecordingPreview: React.FC<RecordingPreviewProps> = ({
       }
     };
   }, [stream]);
+  
+  // Separate effect for webcam stream in simultaneous mode
+  useEffect(() => {
+    if (webcamRef.current && webcamStream && mode === 'simultaneous') {
+      webcamRef.current.srcObject = webcamStream;
+      webcamRef.current.play().catch((err) => {
+        console.error("Error playing webcam preview:", err);
+      });
+    }
+
+    return () => {
+      if (webcamRef.current) {
+        webcamRef.current.srcObject = null;
+      }
+    };
+  }, [webcamStream, mode]);
 
   if (!stream || !mode) {
     return (
@@ -62,12 +81,32 @@ export const RecordingPreview: React.FC<RecordingPreviewProps> = ({
           mode === 'webcam' ? 'scale-x-[-1]' : ''
         }`}
       />
+      
+      {/* Webcam PiP overlay for simultaneous mode */}
+      {mode === 'simultaneous' && webcamStream && (
+        <video
+          ref={webcamRef}
+          autoPlay
+          muted
+          playsInline
+          className="absolute bottom-4 right-4 w-48 h-36 object-cover rounded-lg border-2 border-white shadow-lg scale-x-[-1]"
+        />
+      )}
+      
       <div className="absolute top-2 right-2 flex items-center gap-2 px-3 py-1 bg-red-600 rounded-full">
         <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
         <span className="text-white text-xs font-medium">
           REC - {mode === 'screen' ? 'Screen' : mode === 'webcam' ? 'Webcam' : 'Screen + Webcam'}
         </span>
       </div>
+      
+      {/* For simultaneous mode, show info text about separate files */}
+      {mode === 'simultaneous' && (
+        <div className="absolute bottom-4 left-4 bg-black bg-opacity-60 text-white text-sm p-3 rounded max-w-md">
+          <p className="font-medium">Recording screen + webcam as separate files</p>
+          <p className="text-xs text-gray-300 mt-1">Files will appear in the media library when recording stops. You can position the webcam on the timeline.</p>
+        </div>
+      )}
     </div>
   );
 };

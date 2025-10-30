@@ -59,9 +59,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
     microphoneDeviceId?: string;
   }) =>
     ipcRenderer.invoke("start-webcam-recording", data),
+  startSimultaneousRecording: (data: {
+    screenSourceId: string;
+    webcamDeviceId: string;
+    microphoneDeviceId?: string;
+    recordingMode: 'composited' | 'separate-tracks';
+  }) =>
+    ipcRenderer.invoke("start-simultaneous-recording", data),
   stopRecording: () => ipcRenderer.invoke("stop-recording"),
   saveRecording: (chunks: Uint8Array[]) =>
     ipcRenderer.invoke("save-recording", { chunks }),
+  saveSecondaryRecording: (chunks: Uint8Array[]) =>
+    ipcRenderer.invoke("save-secondary-recording", { chunks }),
   getRecordingState: () => ipcRenderer.invoke("get-recording-state"),
 
   // Event listeners

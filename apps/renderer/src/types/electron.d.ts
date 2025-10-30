@@ -43,8 +43,15 @@ export interface ElectronAPI {
     webcamDeviceId: string;
     microphoneDeviceId?: string;
   }) => Promise<{ success: boolean; error?: string }>;
-  stopRecording: () => Promise<{ filePath: string }>;
+  startSimultaneousRecording: (data: {
+    screenSourceId: string;
+    webcamDeviceId: string;
+    microphoneDeviceId?: string;
+    recordingMode: 'composited' | 'separate-tracks';
+  }) => Promise<{ success: boolean; error?: string }>;
+  stopRecording: () => Promise<{ filePath: string; secondaryFilePath?: string }>;
   saveRecording: (chunks: Uint8Array[]) => Promise<{ filePath: string }>;
+  saveSecondaryRecording: (chunks: Uint8Array[]) => Promise<{ filePath: string }>;
   getRecordingState: () => Promise<{
     isRecording: boolean;
     duration: number | null;

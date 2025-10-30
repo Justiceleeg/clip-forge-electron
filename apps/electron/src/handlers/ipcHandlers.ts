@@ -332,12 +332,55 @@ export class IPCHandlers {
     );
 
     ipcMain.handle(
+      "start-simultaneous-recording",
+      async (
+        event,
+        data: {
+          screenSourceId: string;
+          webcamDeviceId: string;
+          microphoneDeviceId?: string;
+          recordingMode: 'composited' | 'separate-tracks';
+        }
+      ) => {
+        try {
+          const { screenSourceId, webcamDeviceId, microphoneDeviceId, recordingMode } = data;
+          const result = await recordingService.startSimultaneousRecording(
+            screenSourceId,
+            webcamDeviceId,
+            microphoneDeviceId,
+            recordingMode
+          );
+          
+          if (result.success) {
+            this.sendRecordingEvent("recording-started", { success: true });
+            return result;
+          } else {
+            this.sendRecordingEvent("recording-error", { 
+              error: result.error || "Failed to start simultaneous recording" 
+            });
+            throw new Error(result.error || "Failed to start simultaneous recording");
+          }
+        } catch (error) {
+          console.error("Error starting simultaneous recording:", error);
+          this.sendRecordingEvent("recording-error", {
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to start simultaneous recording",
+          });
+          throw error;
+        }
+      }
+    );
+
+    ipcMain.handle(
       "stop-recording",
       async () => {
         try {
           const result = await recordingService.stopRecording();
           this.sendRecordingEvent("recording-stopped", {
             outputPath: result.filePath,
+            secondaryOutputPath: result.secondaryFilePath,
           });
           return result;
         } catch (error) {
@@ -362,6 +405,20 @@ export class IPCHandlers {
           return { filePath };
         } catch (error) {
           console.error("Error saving recording:", error);
+          throw error;
+        }
+      }
+    );
+
+    ipcMain.handle(
+      "save-secondary-recording",
+      async (event, data: { chunks: Uint8Array[] }) => {
+        try {
+          const { chunks } = data;
+          const filePath = await recordingService.saveSecondaryRecording(chunks);
+          return { filePath };
+        } catch (error) {
+          console.error("Error saving secondary recording:", error);
           throw error;
         }
       }

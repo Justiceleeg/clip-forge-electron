@@ -2,10 +2,17 @@ import React, { useState, useEffect, useRef } from "react";
 import { electronService } from "../../services/electronService";
 import { RecordingDialog } from "./RecordingDialog";
 import { WebcamRecordingDialog } from "./WebcamRecordingDialog";
+import { SimultaneousRecordingDialog } from "./SimultaneousRecordingDialog";
+import { RecordingCompositor } from "../../services/recordingCompositor";
 
 interface RecordingControlsProps {
   onRecordingComplete: (filePath: string) => void;
-  onRecordingStateChange?: (isRecording: boolean, stream: MediaStream | null, mode: 'screen' | 'webcam' | null) => void;
+  onRecordingStateChange?: (
+    isRecording: boolean, 
+    stream: MediaStream | null, 
+    mode: 'screen' | 'webcam' | 'simultaneous' | null,
+    webcamStream?: MediaStream | null
+  ) => void;
 }
 
 export const RecordingControls: React.FC<RecordingControlsProps> = ({
@@ -15,14 +22,19 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   const [isRecording, setIsRecording] = useState(false);
   const [showScreenDialog, setShowScreenDialog] = useState(false);
   const [showWebcamDialog, setShowWebcamDialog] = useState(false);
-  const [recordingMode, setRecordingMode] = useState<'screen' | 'webcam' | null>(null);
+  const [showSimultaneousDialog, setShowSimultaneousDialog] = useState(false);
+  const [recordingMode, setRecordingMode] = useState<'screen' | 'webcam' | 'simultaneous' | null>(null);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const secondaryMediaRecorderRef = useRef<MediaRecorder | null>(null); // For separate tracks mode
   const chunksRef = useRef<Blob[]>([]);
+  const secondaryChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const compositorRef = useRef<RecordingCompositor | null>(null);
+  const simultaneousModeRef = useRef<'composited' | 'separate-tracks' | null>(null);
 
   useEffect(() => {
     // Set up event listeners for recording events
@@ -33,8 +45,15 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     });
 
     electronService.onRecordingStopped((data) => {
-      console.log("Recording stopped:", data.outputPath);
-      onRecordingComplete(data.outputPath);
+      console.log("Recording stopped:", data.outputPath, data.secondaryOutputPath);
+      // Import the main file
+      if (data.outputPath) {
+        onRecordingComplete(data.outputPath);
+      }
+      // Import secondary file if it exists (for simultaneous recordings)
+      if (data.secondaryOutputPath) {
+        onRecordingComplete(data.secondaryOutputPath);
+      }
     });
 
     electronService.onRecordingError((data) => {
@@ -83,6 +102,11 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
 
   const handleStartWebcamClick = () => {
     setShowWebcamDialog(true);
+    setError(null);
+  };
+
+  const handleStartSimultaneousClick = () => {
+    setShowSimultaneousDialog(true);
     setError(null);
   };
 
@@ -310,6 +334,189 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     }
   };
 
+  const handleStartSimultaneousRecording = async (
+    screenSourceId: string,
+    webcamDeviceId: string,
+    microphoneDeviceId: string | undefined
+  ) => {
+    try {
+      setError(null);
+      setRecordingMode('simultaneous');
+      
+      // Always use separate-tracks mode
+      const simRecordingMode = 'separate-tracks';
+      simultaneousModeRef.current = simRecordingMode;
+      
+      // Start recording in main process
+      await electronService.startSimultaneousRecording(
+        screenSourceId,
+        webcamDeviceId,
+        microphoneDeviceId,
+        simRecordingMode
+      );
+      
+      // Get screen stream
+      const screenConstraints: any = {
+        mandatory: {
+          chromeMediaSource: "desktop",
+          chromeMediaSourceId: screenSourceId,
+        },
+      };
+
+      const screenStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: screenConstraints,
+      });
+
+      if (!screenStream.active || screenStream.getVideoTracks().length === 0) {
+        throw new Error("Failed to get active screen stream");
+      }
+
+      // Get webcam stream (no audio from webcam)
+      const webcamStream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: webcamDeviceId } },
+        audio: false,
+      });
+
+      if (!webcamStream.active || webcamStream.getVideoTracks().length === 0) {
+        throw new Error("Failed to get webcam stream");
+      }
+
+      // Get microphone stream if requested - this goes with screen recording
+      let audioStream: MediaStream | null = null;
+      if (microphoneDeviceId) {
+        try {
+          audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: { deviceId: { exact: microphoneDeviceId } },
+            video: false,
+          });
+        } catch (err) {
+          console.error("Failed to get microphone stream, continuing without audio:", err);
+        }
+      }
+
+      // Separate tracks mode: record screen and webcam separately
+      chunksRef.current = [];
+      secondaryChunksRef.current = [];
+
+      // Screen gets video only (no audio)
+      const finalScreenStream = screenStream;
+
+      // Webcam gets video + microphone audio (person talking to camera)
+      let finalWebcamStream = webcamStream;
+      if (audioStream) {
+        finalWebcamStream = new MediaStream([
+          ...webcamStream.getVideoTracks(),
+          ...audioStream.getAudioTracks(),
+        ]);
+      }
+
+      // Check available MIME types
+      const mimeTypes = [
+        "video/webm;codecs=vp9",
+        "video/webm;codecs=vp8",
+        "video/webm",
+      ];
+      
+      let selectedMimeType = "video/webm";
+      for (const mimeType of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+          selectedMimeType = mimeType;
+          break;
+        }
+      }
+
+      // Create MediaRecorder for screen (video only, no audio)
+      const screenRecorder = new MediaRecorder(finalScreenStream, {
+        mimeType: selectedMimeType,
+        videoBitsPerSecond: 2500000,
+      });
+
+      screenRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunksRef.current.push(event.data);
+        }
+      };
+
+      // Track when both recorders have stopped
+      let screenStopped = false;
+      let webcamStopped = false;
+
+      const checkBothStopped = async () => {
+        if (screenStopped && webcamStopped) {
+          await handleSeparateTracksStop();
+        }
+      };
+
+      screenRecorder.onstop = async () => {
+        screenStopped = true;
+        await checkBothStopped();
+      };
+
+      screenRecorder.onerror = (event: any) => {
+        console.error("Screen MediaRecorder error:", event);
+        setError("Screen recording error occurred");
+        handleRecordingError();
+      };
+
+      // Create MediaRecorder for webcam (video + microphone audio)
+      const webcamRecorder = new MediaRecorder(finalWebcamStream, {
+        mimeType: selectedMimeType,
+        videoBitsPerSecond: 2500000,
+      });
+
+      webcamRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          secondaryChunksRef.current.push(event.data);
+        }
+      };
+
+      webcamRecorder.onstop = async () => {
+        webcamStopped = true;
+        await checkBothStopped();
+      };
+
+      webcamRecorder.onerror = (event: any) => {
+        console.error("Webcam MediaRecorder error:", event);
+        setError("Webcam recording error occurred");
+        handleRecordingError();
+      };
+
+      mediaRecorderRef.current = screenRecorder;
+      secondaryMediaRecorderRef.current = webcamRecorder;
+      streamRef.current = finalScreenStream;
+
+      // Store webcam stream separately for cleanup
+      const webcamStreamForCleanup = finalWebcamStream;
+
+      // Start both recorders
+      screenRecorder.start(1000);
+      webcamRecorder.start(1000);
+
+      setIsRecording(true);
+      startTimer();
+      
+      // Notify parent about recording state - pass screen stream for main preview
+      // We'll need to handle webcam stream separately for PiP
+      if (onRecordingStateChange) {
+        onRecordingStateChange(true, finalScreenStream, 'simultaneous', webcamStreamForCleanup);
+      }
+
+      // Store webcam stream for later cleanup
+      (screenRecorder as any).webcamStream = webcamStreamForCleanup;
+    } catch (err) {
+      console.error("Error starting simultaneous recording:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to start simultaneous recording. Please check permissions."
+      );
+      setIsRecording(false);
+      setRecordingMode(null);
+      simultaneousModeRef.current = null;
+    }
+  };
+
   const handleRecorderStop = async () => {
     if (chunksRef.current.length === 0) {
       setError("No video data was recorded. Please try again.");
@@ -336,6 +543,12 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
       // Stop the recording in main process
       await electronService.stopRecording();
       
+      // Clean up compositor if used
+      if (compositorRef.current) {
+        compositorRef.current.stopComposition();
+        compositorRef.current = null;
+      }
+      
       // Clean up
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
@@ -344,6 +557,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
       
       setIsRecording(false);
       setRecordingMode(null);
+      simultaneousModeRef.current = null;
       stopTimer();
       
       // Notify parent about recording stopped
@@ -361,15 +575,88 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     }
   };
 
+  const handleSeparateTracksStop = async () => {
+    // Prevent double-processing if both onstop handlers fire
+    if (chunksRef.current.length === 0 && secondaryChunksRef.current.length === 0) {
+      return; // Already processed
+    }
+    
+    if (chunksRef.current.length === 0 || secondaryChunksRef.current.length === 0) {
+      setError("Recording failed: no data captured from one or both sources");
+      handleRecordingError();
+      return;
+    }
+    
+    // Convert screen recording
+    const screenBlob = new Blob(chunksRef.current, { type: "video/webm" });
+    const screenBuffer = await screenBlob.arrayBuffer();
+    const screenArray = new Uint8Array(screenBuffer);
+
+    // Convert webcam recording
+    const webcamBlob = new Blob(secondaryChunksRef.current, { type: "video/webm" });
+    const webcamBuffer = await webcamBlob.arrayBuffer();
+    const webcamArray = new Uint8Array(webcamBuffer);
+    
+    // Clear chunks immediately to prevent reprocessing
+    chunksRef.current = [];
+    secondaryChunksRef.current = [];
+
+    try {
+      // Save both recordings
+      await electronService.saveRecording([screenArray]);
+      await electronService.saveSecondaryRecording([webcamArray]);
+      
+      // Stop the recording in main process
+      // This will trigger the 'recording-stopped' event which will import the files
+      // Don't call onRecordingComplete here - let the event handler do it
+      await electronService.stopRecording();
+      
+      // Clean up screen stream
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      
+      // Clean up webcam stream (stored in mediaRecorderRef)
+      if (mediaRecorderRef.current && (mediaRecorderRef.current as any).webcamStream) {
+        const webcamStream = (mediaRecorderRef.current as any).webcamStream;
+        webcamStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+      }
+      
+      setIsRecording(false);
+      setRecordingMode(null);
+      simultaneousModeRef.current = null;
+      stopTimer();
+      
+      // Notify parent about recording stopped
+      if (onRecordingStateChange) {
+        onRecordingStateChange(false, null, null);
+      }
+    } catch (err) {
+      console.error("Error saving separate tracks:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to save recordings"
+      );
+      handleRecordingError();
+    }
+  };
+
   const handleStopRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
+    }
+    
+    if (secondaryMediaRecorderRef.current && secondaryMediaRecorderRef.current.state !== "inactive") {
+      secondaryMediaRecorderRef.current.stop();
     }
   };
 
   const handleRecordingError = () => {
     setIsRecording(false);
     setRecordingMode(null);
+    simultaneousModeRef.current = null;
     stopTimer();
     
     // Notify parent about recording stopped
@@ -377,16 +664,33 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
       onRecordingStateChange(false, null, null);
     }
     
+    // Clean up screen stream
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+    }
+    
+    // Clean up webcam stream (stored in mediaRecorderRef for simultaneous recordings)
+    if (mediaRecorderRef.current && (mediaRecorderRef.current as any).webcamStream) {
+      const webcamStream = (mediaRecorderRef.current as any).webcamStream;
+      webcamStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+    }
+    
+    if (compositorRef.current) {
+      compositorRef.current.stopComposition();
+      compositorRef.current = null;
     }
     
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current = null;
     }
     
+    if (secondaryMediaRecorderRef.current) {
+      secondaryMediaRecorderRef.current = null;
+    }
+    
     chunksRef.current = [];
+    secondaryChunksRef.current = [];
   };
 
   return (
@@ -434,6 +738,26 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
               </svg>
               <span>Record Webcam</span>
             </button>
+            <button
+              onClick={handleStartSimultaneousClick}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+              title="Start screen + webcam recording"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"
+                />
+              </svg>
+              <span>Screen + Webcam</span>
+            </button>
           </>
         ) : (
           <>
@@ -445,7 +769,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                 </span>
               </div>
               <span className="text-gray-400 text-sm">
-                Recording {recordingMode === 'screen' ? 'Screen' : 'Webcam'}...
+                Recording {recordingMode === 'screen' ? 'Screen' : recordingMode === 'webcam' ? 'Webcam' : 'Screen + Webcam'}...
               </span>
             </div>
             <button
@@ -494,6 +818,12 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
         isOpen={showWebcamDialog}
         onClose={() => setShowWebcamDialog(false)}
         onStartRecording={handleStartWebcamRecording}
+      />
+      
+      <SimultaneousRecordingDialog
+        isOpen={showSimultaneousDialog}
+        onClose={() => setShowSimultaneousDialog(false)}
+        onStartRecording={handleStartSimultaneousRecording}
       />
     </>
   );

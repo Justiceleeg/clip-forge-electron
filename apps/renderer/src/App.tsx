@@ -25,7 +25,8 @@ function App() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null);
-  const [recordingMode, setRecordingMode] = useState<'screen' | 'webcam' | null>(null);
+  const [recordingWebcamStream, setRecordingWebcamStream] = useState<MediaStream | null>(null);
+  const [recordingMode, setRecordingMode] = useState<'screen' | 'webcam' | 'simultaneous' | null>(null);
   const videoPlayerRef = useRef<VideoPlayerRef>(null);
   const {
     clips,
@@ -199,10 +200,12 @@ function App() {
   const handleRecordingStateChange = (
     recording: boolean,
     stream: MediaStream | null,
-    mode: 'screen' | 'webcam' | null
+    mode: 'screen' | 'webcam' | 'simultaneous' | null,
+    webcamStream?: MediaStream | null
   ) => {
     setIsRecording(recording);
     setRecordingStream(stream);
+    setRecordingWebcamStream(webcamStream || null);
     setRecordingMode(mode);
   };
 
@@ -262,7 +265,8 @@ function App() {
               {isRecording ? (
                 <RecordingPreview 
                   stream={recordingStream} 
-                  mode={recordingMode} 
+                  mode={recordingMode}
+                  webcamStream={recordingWebcamStream}
                   className="h-full rounded-lg" 
                 />
               ) : (

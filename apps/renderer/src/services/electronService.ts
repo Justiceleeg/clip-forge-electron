@@ -283,9 +283,35 @@ export class ElectronService {
   }
 
   /**
+   * Start simultaneous screen + webcam recording
+   */
+  async startSimultaneousRecording(
+    screenSourceId: string,
+    webcamDeviceId: string,
+    microphoneDeviceId: string | undefined,
+    recordingMode: 'composited' | 'separate-tracks'
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!this.isElectron) {
+      throw new Error("Electron service not available in web environment");
+    }
+
+    try {
+      return await (window as any).electronAPI.startSimultaneousRecording({
+        screenSourceId,
+        webcamDeviceId,
+        microphoneDeviceId,
+        recordingMode,
+      });
+    } catch (error) {
+      console.error("Error starting simultaneous recording:", error);
+      throw error;
+    }
+  }
+
+  /**
    * Stop screen recording
    */
-  async stopRecording(): Promise<{ filePath: string }> {
+  async stopRecording(): Promise<{ filePath: string; secondaryFilePath?: string }> {
     if (!this.isElectron) {
       throw new Error("Electron service not available in web environment");
     }
@@ -310,6 +336,22 @@ export class ElectronService {
       return await (window as any).electronAPI.saveRecording(chunks);
     } catch (error) {
       console.error("Error saving recording:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save secondary recording chunks (for separate tracks mode)
+   */
+  async saveSecondaryRecording(chunks: Uint8Array[]): Promise<{ filePath: string }> {
+    if (!this.isElectron) {
+      throw new Error("Electron service not available in web environment");
+    }
+
+    try {
+      return await (window as any).electronAPI.saveSecondaryRecording(chunks);
+    } catch (error) {
+      console.error("Error saving secondary recording:", error);
       throw error;
     }
   }
@@ -346,7 +388,7 @@ export class ElectronService {
     );
   }
 
-  onRecordingStopped(callback: (data: { outputPath: string }) => void): void {
+  onRecordingStopped(callback: (data: { outputPath: string; secondaryOutputPath?: string }) => void): void {
     if (!this.isElectron) return;
     (window as any).electronAPI.onRecordingStopped(
       (_event: any, data: any) => {

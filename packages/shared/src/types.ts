@@ -93,7 +93,7 @@ export interface VideoEvents {
 
 export interface RecordingEvents {
   "recording-started": { success: boolean };
-  "recording-stopped": { outputPath: string };
+  "recording-stopped": { outputPath: string; secondaryOutputPath?: string };
   "recording-error": { error: string };
 }
 
@@ -124,5 +124,20 @@ export interface RecordingCommands {
     windowId?: string;
   };
   "start-webcam-recording": { deviceId: string };
+  "start-simultaneous-recording": {
+    screenSourceId: string;
+    webcamDeviceId: string;
+    microphoneDeviceId?: string;
+    pipConfig: PipConfig;
+    recordingMode: 'composited' | 'separate-tracks';
+  };
   "stop-recording": void;
+}
+
+// PiP configuration for simultaneous recording
+export interface PipConfig {
+  position: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+  size: 'small' | 'medium' | 'large';
+  customWidth?: number;
+  customHeight?: number;
 }

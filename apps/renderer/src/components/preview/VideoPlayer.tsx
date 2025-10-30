@@ -224,6 +224,10 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
           }
         }
       } else {
+        // No active clip on track 2 - pause and clear the video
+        if (videoRef2.current && !videoRef2.current.paused) {
+          videoRef2.current.pause();
+        }
         setCurrentClip2(null);
         setCurrentVideoClip2(null);
         previousClipId2.current = null;
@@ -458,6 +462,24 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(
           setTimeout(() => {
             isUpdatingFromVideo.current = false;
           }, 50);
+        }
+        
+        // Check if track 2 video has reached its trim end point or if playhead moved past clip
+        const video2 = videoRef2.current;
+        if (video2 && currentClip2 && !video2.paused) {
+          const video2Time = video2.currentTime;
+          const timelineTime = timeline.playheadPosition;
+          
+          // Pause if video has reached trimEnd OR if playhead has moved past the clip's endTime
+          const shouldPause = 
+            video2Time >= currentClip2.trimEnd || 
+            timelineTime >= currentClip2.endTime;
+            
+          if (shouldPause) {
+            video2.pause();
+            // Set to trimEnd to prevent audio bleed
+            video2.currentTime = currentClip2.trimEnd;
+          }
         }
 
         animationFrameId.current = requestAnimationFrame(smoothUpdate);

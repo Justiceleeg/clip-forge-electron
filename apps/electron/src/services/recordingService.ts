@@ -15,13 +15,15 @@ export interface ScreenSource {
 export interface RecordingState {
   isRecording: boolean;
   recordingStartTime: number | null;
-  recordingMode: 'screen' | 'webcam' | 'screen+webcam' | null;
+  recordingMode: 'screen' | 'webcam' | 'simultaneous' | null;
   selectedSource: ScreenSource | null;
   selectedWebcam: string | null; // deviceId
   selectedMicrophone: string | null; // deviceId
   outputPath: string | null;
+  secondaryOutputPath: string | null; // For separate tracks mode
   mediaRecorder: MediaRecorder | null;
   chunks: Blob[];
+  simultaneousMode: 'composited' | 'separate-tracks' | null;
 }
 
 export class RecordingService {
@@ -33,8 +35,10 @@ export class RecordingService {
     selectedWebcam: null,
     selectedMicrophone: null,
     outputPath: null,
+    secondaryOutputPath: null,
     mediaRecorder: null,
     chunks: [],
+    simultaneousMode: null,
   };
 
   private recordingsDir: string;
@@ -172,9 +176,67 @@ export class RecordingService {
   }
 
   /**
+   * Start simultaneous screen + webcam recording
+   */
+  async startSimultaneousRecording(
+    screenSourceId: string,
+    webcamDeviceId: string,
+    microphoneDeviceId: string | undefined,
+    recordingMode: 'composited' | 'separate-tracks'
+  ): Promise<{ success: boolean; error?: string }> {
+    if (this.state.isRecording) {
+      return { success: false, error: "Recording already in progress" };
+    }
+
+    try {
+      this.state.isRecording = true;
+      this.state.recordingStartTime = Date.now();
+      this.state.recordingMode = 'simultaneous';
+      this.state.selectedWebcam = webcamDeviceId;
+      this.state.selectedMicrophone = microphoneDeviceId || null;
+      this.state.simultaneousMode = recordingMode;
+      this.state.chunks = [];
+
+      // Generate output file path(s)
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")
+        .split("T")
+        .join("-")
+        .split("Z")[0];
+
+      if (recordingMode === 'composited') {
+        // Single composited file
+        const filename = `screen-webcam-${timestamp}.webm`;
+        this.state.outputPath = join(this.recordingsDir, filename);
+        this.state.secondaryOutputPath = null;
+      } else {
+        // Separate files for each source
+        const screenFilename = `screen-${timestamp}.webm`;
+        const webcamFilename = `webcam-${timestamp}.webm`;
+        this.state.outputPath = join(this.recordingsDir, screenFilename);
+        this.state.secondaryOutputPath = join(this.recordingsDir, webcamFilename);
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error("Error starting simultaneous recording:", error);
+      this.state.isRecording = false;
+      this.state.recordingStartTime = null;
+      this.state.recordingMode = null;
+      this.state.simultaneousMode = null;
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to start simultaneous recording",
+      };
+    }
+  }
+
+  /**
    * Stop screen recording and save the file
    */
-  async stopRecording(): Promise<{ filePath: string }> {
+  async stopRecording(): Promise<{ filePath: string; secondaryFilePath?: string }> {
     if (!this.state.isRecording) {
       throw new Error("No recording in progress");
     }
@@ -188,15 +250,18 @@ export class RecordingService {
       this.state.mediaRecorder = null;
 
       const filePath = this.state.outputPath || "";
+      const secondaryFilePath = this.state.secondaryOutputPath || undefined;
       
       // Reset state
       this.state.selectedSource = null;
       this.state.selectedWebcam = null;
       this.state.selectedMicrophone = null;
       this.state.outputPath = null;
+      this.state.secondaryOutputPath = null;
       this.state.chunks = [];
+      this.state.simultaneousMode = null;
 
-      return { filePath };
+      return { filePath, secondaryFilePath };
     } catch (error) {
       console.error("Error stopping recording:", error);
       this.state.isRecording = false;
@@ -265,6 +330,45 @@ export class RecordingService {
   }
 
   /**
+   * Save secondary recording (for separate tracks mode)
+   */
+  async saveSecondaryRecording(chunks: Uint8Array[]): Promise<string> {
+    if (!this.state.secondaryOutputPath) {
+      throw new Error("No secondary output path specified");
+    }
+
+    try {
+      // Combine all chunks into a single buffer
+      const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
+      const combinedBuffer = new Uint8Array(totalLength);
+      
+      let offset = 0;
+      for (const chunk of chunks) {
+        combinedBuffer.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      // Write to temporary file first
+      const tempPath = this.state.secondaryOutputPath + ".tmp";
+      await writeFile(tempPath, Buffer.from(combinedBuffer));
+      
+      // Fix WebM duration metadata using FFmpeg
+      try {
+        await ffmpegService.fixWebMDuration(tempPath, this.state.secondaryOutputPath);
+        await fs.unlink(tempPath);
+      } catch (error) {
+        console.error("Failed to fix WebM duration for secondary file, using original:", error);
+        await fs.rename(tempPath, this.state.secondaryOutputPath);
+      }
+      
+      return this.state.secondaryOutputPath;
+    } catch (error) {
+      console.error("Error saving secondary recording:", error);
+      throw new Error("Failed to save secondary recording");
+    }
+  }
+
+  /**
    * Clean up failed recordings
    */
   async cleanupFailedRecording(): Promise<void> {
@@ -276,6 +380,14 @@ export class RecordingService {
       }
     }
 
+    if (this.state.secondaryOutputPath) {
+      try {
+        await fs.unlink(this.state.secondaryOutputPath);
+      } catch (error) {
+        console.error("Error cleaning up secondary recording:", error);
+      }
+    }
+
     this.state.isRecording = false;
     this.state.recordingStartTime = null;
     this.state.recordingMode = null;
@@ -283,8 +395,10 @@ export class RecordingService {
     this.state.selectedWebcam = null;
     this.state.selectedMicrophone = null;
     this.state.outputPath = null;
+    this.state.secondaryOutputPath = null;
     this.state.mediaRecorder = null;
     this.state.chunks = [];
+    this.state.simultaneousMode = null;
   }
 }
 
