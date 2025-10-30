@@ -214,6 +214,57 @@ export class ElectronService {
   }
 
   /**
+   * Transcribe video with progress tracking
+   */
+  async transcribeVideo(
+    videoFilePath: string,
+    transcriptionConfig: any,
+    onProgress?: (progress: number, status: string) => void
+  ): Promise<{ transcriptionFilePath: string }> {
+    if (!this.isElectron) {
+      throw new Error("Electron service not available in web environment");
+    }
+
+    // Set up progress listener before invoking
+    if (onProgress) {
+      const progressHandler = (_event: any, data: any) => {
+        onProgress(data.progress, data.message || "Transcribing...");
+      };
+      (window as any).electronAPI.onTranscriptionProgress(progressHandler);
+    }
+
+    // Set up completion/error listeners
+    const successHandler = (_event: any, _data: { transcriptionFilePath: string }) => {
+      (window as any).electronAPI.removeAllListeners("transcription-complete");
+      (window as any).electronAPI.removeAllListeners("transcription-error");
+      (window as any).electronAPI.removeAllListeners("transcription-progress");
+    };
+
+    const errorHandler = (_event: any, _data: { error: string }) => {
+      (window as any).electronAPI.removeAllListeners("transcription-complete");
+      (window as any).electronAPI.removeAllListeners("transcription-error");
+      (window as any).electronAPI.removeAllListeners("transcription-progress");
+    };
+
+    (window as any).electronAPI.onTranscriptionComplete(successHandler);
+    (window as any).electronAPI.onTranscriptionError(errorHandler);
+
+    try {
+      // Use invoke to call the handler - this will wait for completion
+      return await (window as any).electronAPI.transcribeVideo({
+        videoFilePath,
+        transcriptionConfig,
+      });
+    } catch (error) {
+      // Clean up listeners on error
+      (window as any).electronAPI.removeAllListeners("transcription-complete");
+      (window as any).electronAPI.removeAllListeners("transcription-error");
+      (window as any).electronAPI.removeAllListeners("transcription-progress");
+      throw error;
+    }
+  }
+
+  /**
    * Check if running in Electron environment
    */
   isElectronEnvironment(): boolean {

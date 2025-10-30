@@ -46,6 +46,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     settings: any;
   }) => ipcRenderer.invoke("export-video", data),
 
+  // Transcription operations
+  transcribeVideo: (data: {
+    videoFilePath: string;
+    transcriptionConfig: any;
+  }) => ipcRenderer.invoke("transcribe-video", data),
+
   // Recording operations
   getScreenSources: () => ipcRenderer.invoke("get-screen-sources"),
   startScreenRecording: (data: { 
@@ -97,6 +103,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
   onVideoProcessingError: (callback: (event: any, data: any) => void) => {
     ipcRenderer.on("video-processing-error", callback);
+  },
+
+  // Transcription event listeners
+  onTranscriptionProgress: (callback: (event: any, data: any) => void) => {
+    ipcRenderer.on("transcription-progress", callback);
+  },
+  onTranscriptionComplete: (callback: (event: any, data: any) => void) => {
+    ipcRenderer.on("transcription-complete", callback);
+  },
+  onTranscriptionError: (callback: (event: any, data: any) => void) => {
+    ipcRenderer.on("transcription-error", callback);
   },
 
   // Recording event listeners

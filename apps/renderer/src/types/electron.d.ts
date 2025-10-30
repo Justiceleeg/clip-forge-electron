@@ -1,4 +1,4 @@
-import { VideoClip, ExportSettings, Timeline } from "@clipforge/shared";
+import { VideoClip, ExportSettings, Timeline, TranscriptionConfig, TranscriptionProgress } from "@clipforge/shared";
 
 export interface ScreenSource {
   id: string;
@@ -31,6 +31,12 @@ export interface ElectronAPI {
     outputPath: string;
     settings: ExportSettings;
   }) => Promise<void>;
+
+  // Transcription operations
+  transcribeVideo: (data: {
+    videoFilePath: string;
+    transcriptionConfig: TranscriptionConfig;
+  }) => Promise<{ transcriptionFilePath: string }>;
 
   // Recording operations
   getScreenSources: () => Promise<ScreenSource[]>;
@@ -69,6 +75,11 @@ export interface ElectronAPI {
     callback: (event: any, data: any) => void
   ) => void;
   onVideoProcessingError: (callback: (event: any, data: any) => void) => void;
+
+  // Transcription event listeners
+  onTranscriptionProgress: (callback: (event: any, data: TranscriptionProgress) => void) => void;
+  onTranscriptionComplete: (callback: (event: any, data: { transcriptionFilePath: string }) => void) => void;
+  onTranscriptionError: (callback: (event: any, data: { error: string }) => void) => void;
 
   // Recording event listeners
   onRecordingStarted: (callback: (event: any, data: any) => void) => void;

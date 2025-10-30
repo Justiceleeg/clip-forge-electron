@@ -1357,6 +1357,36 @@ export class FFmpegService {
   }
 
   /**
+   * Extract audio from video file
+   */
+  async extractAudio(
+    videoPath: string,
+    outputPath: string,
+    format: 'mp3' | 'wav' = 'mp3'
+  ): Promise<void> {
+    const args = [
+      "-i",
+      videoPath,
+      "-vn", // No video
+      "-acodec",
+      format === 'mp3' ? 'libmp3lame' : 'pcm_s16le',
+      "-ar",
+      "16000", // 16kHz sample rate (good for speech)
+      "-ac",
+      "1", // Mono audio
+      "-y", // Overwrite output
+      outputPath,
+    ];
+
+    try {
+      await this.runCommand(this.ffmpegPath, args);
+    } catch (error) {
+      console.error("Error extracting audio:", error);
+      throw new Error(`Failed to extract audio: ${error}`);
+    }
+  }
+
+  /**
    * Fix WebM duration metadata by re-muxing the file
    * This is needed because browser MediaRecorder doesn't write duration properly
    */

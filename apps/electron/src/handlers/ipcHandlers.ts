@@ -2,21 +2,26 @@ import { ipcMain, dialog } from "electron";
 import { fileService } from "../services/fileService";
 import { ffmpegService } from "../services/ffmpegService";
 import { recordingService } from "../services/recordingService";
+import { TranscriptionService } from "../services/transcriptionService";
 import {
   VideoClip,
   FileCommands,
   FileEvents,
   VideoEvents,
   RecordingEvents,
+  TranscriptionEvents,
   ExportSettings,
   Timeline,
+  TranscriptionConfig,
 } from "@clipforge/shared";
 
 export class IPCHandlers {
   private mainWindow: Electron.BrowserWindow | null = null;
+  private transcriptionService: TranscriptionService;
 
   constructor(mainWindow: Electron.BrowserWindow) {
     this.mainWindow = mainWindow;
+    this.transcriptionService = new TranscriptionService();
     this.setupHandlers();
   }
 
@@ -438,6 +443,42 @@ export class IPCHandlers {
         throw error;
       }
     });
+
+    // Transcription handler
+    ipcMain.handle(
+      "transcribe-video",
+      async (
+        event,
+        data: FileCommands["transcribe-video"]
+      ) => {
+        try {
+          const { videoFilePath, transcriptionConfig } = data;
+
+          // Transcribe video with progress tracking
+          const transcriptionFilePath = await this.transcriptionService.transcribeVideo(
+            videoFilePath,
+            transcriptionConfig,
+            (progress) => {
+              // Send progress update to renderer
+              this.sendTranscriptionEvent("transcription-progress", progress);
+            }
+          );
+
+          // Send completion event
+          this.sendTranscriptionEvent("transcription-complete", { 
+            transcriptionFilePath 
+          });
+
+          return { transcriptionFilePath };
+        } catch (error) {
+          console.error("Error transcribing video:", error);
+          this.sendTranscriptionEvent("transcription-error", {
+            error: error instanceof Error ? error.message : "Failed to transcribe video"
+          });
+          throw error;
+        }
+      }
+    );
   }
 
   private sendEvent<K extends keyof FileEvents>(
@@ -489,6 +530,19 @@ export class IPCHandlers {
   private sendRecordingEvent<K extends keyof RecordingEvents>(
     event: K,
     data: RecordingEvents[K]
+  ): void {
+    if (
+      this.mainWindow &&
+      !this.mainWindow.isDestroyed() &&
+      !this.mainWindow.webContents.isDestroyed()
+    ) {
+      this.mainWindow.webContents.send(event as string, data);
+    }
+  }
+
+  private sendTranscriptionEvent<K extends keyof TranscriptionEvents>(
+    event: K,
+    data: TranscriptionEvents[K]
   ): void {
     if (
       this.mainWindow &&

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { VideoClip, ExportSettings, Timeline } from "@clipforge/shared";
+import { VideoClip, ExportSettings, Timeline, TranscriptionConfig } from "@clipforge/shared";
 import { ProgressBar } from "./ProgressBar";
-import { X, Download, FileVideo, Settings as SettingsIcon } from "lucide-react";
+import { X, Download, FileVideo, Settings as SettingsIcon, FileText, Key } from "lucide-react";
 
 interface ExportDialogProps {
   isOpen: boolean;
-  onExport: (outputPath: string, settings: ExportSettings) => void;
+  onExport: (outputPath: string, settings: ExportSettings, transcriptionConfig?: TranscriptionConfig) => void;
   onCancel: () => void;
   timeline: Timeline;
   clips: VideoClip[];
@@ -32,12 +32,28 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     fps: 30,
     bitrate: 5000,
     audioBitrate: 128,
+    includeTranscription: false,
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [transcriptionConfig, setTranscriptionConfig] = useState<TranscriptionConfig>({
+    apiKey: "",
+    model: "whisper-1",
+  });
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   // Calculate timeline duration and clip count from ALL video tracks
   const videoTracks = timeline.tracks.filter((track) => track.type === "video");
+  const audioTracks = timeline.tracks.filter((track) => track.type === "audio");
   const clipCount = videoTracks.reduce((total, track) => total + track.clips.length, 0);
+  
+  // Check if video has audio tracks for transcription
+  const hasAudioTracks = audioTracks.length > 0 || videoTracks.some(track => 
+    track.clips.some(clip => {
+      const sourceClip = clips.find(c => c.id === clip.videoClipId);
+      return sourceClip && sourceClip.duration > 0; // Assume video clips have audio
+    })
+  );
   
   // Calculate actual export duration: max endTime across all clips on all tracks
   const timelineDuration =
@@ -108,17 +124,29 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
     if (missingClips.length > 0) {
       return { isValid: false, error: `Missing source files for ${missingClips.length} clip(s)` };
     }
+    // Validate transcription settings
+    if (settings.includeTranscription) {
+      if (!transcriptionConfig.apiKey.trim()) {
+        return { isValid: false, error: "OpenAI API key is required for transcription" };
+      }
+      if (!hasAudioTracks) {
+        return { isValid: false, error: "No audio tracks found for transcription" };
+      }
+    }
     return { isValid: true };
   };
 
   const handleExport = () => {
     const validation = validateExport();
     if (!validation.isValid) {
-      // Show error to user (could be improved with a toast/notification)
-      console.error("Export validation failed:", validation.error);
+      setValidationError(validation.error || "Export validation failed");
       return;
     }
-    onExport(outputPath, settings);
+    setValidationError(null);
+    
+    // Pass transcription config if transcription is enabled
+    const configToPass = settings.includeTranscription ? transcriptionConfig : undefined;
+    onExport(outputPath, settings, configToPass);
   };
 
   useEffect(() => {
@@ -342,6 +370,87 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
               </div>
             )}
           </div>
+
+          {/* Transcription Settings */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-gray-300 flex items-center gap-2">
+              <FileText className="w-4 h-4" />
+              Transcription
+            </h3>
+            
+            <div className="bg-gray-900 rounded-lg p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 text-sm text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={settings.includeTranscription || false}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        includeTranscription: e.target.checked,
+                      })
+                    }
+                    disabled={isExporting || !hasAudioTracks}
+                    className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                  />
+                  Include Transcription
+                </label>
+                <div className="text-xs text-gray-400">
+                  {hasAudioTracks ? "✓ Audio detected" : "⚠ No audio tracks"}
+                </div>
+              </div>
+
+              {settings.includeTranscription && (
+                <div className="space-y-3 pt-2 border-t border-gray-700">
+                  <div className="text-sm text-gray-400">
+                    Transcription will be saved as a .txt file alongside your video
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-400">
+                      OpenAI API Key
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type={showApiKey ? "text" : "password"}
+                        value={transcriptionConfig.apiKey}
+                        onChange={(e) =>
+                          setTranscriptionConfig({
+                            ...transcriptionConfig,
+                            apiKey: e.target.value,
+                          })
+                        }
+                        disabled={isExporting}
+                        placeholder="sk-..."
+                        className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        disabled={isExporting}
+                        className="px-3 py-2 text-gray-400 hover:text-white transition-colors"
+                        title={showApiKey ? "Hide API key" : "Show API key"}
+                      >
+                        <Key className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      Your API key is stored securely and only used for transcription
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Validation Error */}
+          {validationError && (
+            <div className="bg-red-900/30 border border-red-700 rounded-lg p-4">
+              <p className="text-red-400 text-sm">
+                ⚠️ {validationError}
+              </p>
+            </div>
+          )}
 
           {/* Progress Bar */}
           <ProgressBar

@@ -116,7 +116,7 @@ function App() {
     }
   };
 
-  const handleExport = async (outputPath: string, settings: ExportSettings) => {
+  const handleExport = async (outputPath: string, settings: ExportSettings, transcriptionConfig?: any) => {
     // Check if there are clips on the timeline
     const hasClips = timeline.tracks.some(
       (track) => track.clips && track.clips.length > 0
@@ -145,6 +145,30 @@ function App() {
 
       setExportProgress(100);
       setExportStatus("Export complete!");
+
+      // If transcription is enabled, start transcription process
+      if (settings.includeTranscription && transcriptionConfig) {
+        setExportStatus("Starting transcription...");
+        
+        try {
+          await electronService.transcribeVideo(
+            outputPath,
+            transcriptionConfig,
+            (progress, status) => {
+              // Update progress to show transcription progress
+              setExportProgress(50 + (progress * 0.5)); // Map transcription progress to 50-100%
+              setExportStatus(`Transcribing: ${status}`);
+            }
+          );
+
+          setExportProgress(100);
+          setExportStatus("Export and transcription complete!");
+        } catch (transcriptionError) {
+          console.error("Transcription failed:", transcriptionError);
+          // Don't fail the entire export if transcription fails
+          setExportStatus("Export complete! (Transcription failed)");
+        }
+      }
 
       // Close dialog after a brief delay
       setTimeout(() => {

@@ -74,6 +74,7 @@ export interface ExportSettings {
   fps: number;
   bitrate: number;
   audioBitrate: number;
+  includeTranscription?: boolean;
 }
 
 // IPC event types
@@ -97,6 +98,12 @@ export interface RecordingEvents {
   "recording-error": { error: string };
 }
 
+export interface TranscriptionEvents {
+  "transcription-progress": TranscriptionProgress;
+  "transcription-complete": { transcriptionFilePath: string };
+  "transcription-error": { error: string };
+}
+
 export interface FileCommands {
   "import-video": { filePath: string };
   "save-project": { project: Project };
@@ -105,6 +112,10 @@ export interface FileCommands {
     project: Project;
     outputPath: string;
     settings: ExportSettings;
+  };
+  "transcribe-video": {
+    videoFilePath: string;
+    transcriptionConfig: TranscriptionConfig;
   };
 }
 
@@ -140,4 +151,20 @@ export interface PipConfig {
   size: 'small' | 'medium' | 'large';
   customWidth?: number;
   customHeight?: number;
+}
+
+// Transcription types
+export interface TranscriptionConfig {
+  apiKey: string;
+  model?: string;
+}
+
+export interface TranscriptionResult {
+  text: string;
+}
+
+export interface TranscriptionProgress {
+  stage: 'extracting' | 'transcribing' | 'formatting' | 'complete';
+  progress: number; // 0-100
+  message: string;
 }
